@@ -13,6 +13,8 @@ import scala.concurrent.Future
 
 case class BackupInfo(id: String, timestamp: Long, size: Long)
 
+case class KeyValuePair[T](key: String, value: T)
+
 class RocksDBManager(path: Path, columnFamilies: List[String]) {
 
   val (db, columnFamilyHandles) = {
@@ -61,11 +63,29 @@ class RocksDBManager(path: Path, columnFamilies: List[String]) {
 }
 
 
+class RocksDBIterator(it: RocksIterator, prefix: Option[String]) extends Iterator[KeyValuePair[Array[Byte]]] {
+
+  override def hasNext: Boolean = it.isValid && prefix.forall(it.key().startsWith(_))
+
+  override def next: KeyValuePair[Array[Byte]] = {
+    val value = KeyValuePair(new String(it.key().map(_.toChar)) , it.value())
+    it.next()
+    value
+  }
+}
+
 class RocksDBStore(db: RocksDB, handle: ColumnFamilyHandle) {
 
   def get(key: String): Array[Byte] = {
     db.get(handle, key.getBytes())
   }
+
+  def scan(key: String, prefix: Option[String]): Iterator[KeyValuePair[Array[Byte]]] = {
+    val it = db.newIterator(handle)
+    it.seek(key.getBytes())
+    new RocksDBIterator(it, prefix)
+  }
+
 
   def put(key: String, value: Array[Byte]) = {
     db.put(handle, key.getBytes(), value)

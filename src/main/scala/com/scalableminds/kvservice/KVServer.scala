@@ -3,13 +3,13 @@
  */
 package com.scalableminds.kvservice
 
-import com.scalableminds.kvservice.db.RocksDBStore
+import com.scalableminds.kvservice.db.VersionedKeyValueStore
 import com.scalableminds.kvservice.proto.rpcs.StoreGrpc
 import io.grpc.{Server, ServerBuilder}
 
 import scala.concurrent.ExecutionContext
 
-class KVServer(stores: Map[String, RocksDBStore], port: Int, executionContext: ExecutionContext) { self =>
+class KVServer(stores: Map[String, VersionedKeyValueStore], port: Int, executionContext: ExecutionContext) { self =>
   private[this] var server: Server = null
 
   def start(): Unit = {
