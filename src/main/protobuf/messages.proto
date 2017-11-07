@@ -1,6 +1,16 @@
 syntax = "proto2";
 
-package com.scalableminds.kvservice.messages;
+package com.scalableminds.kvservice.proto;
+
+
+message HelloRequest {
+    required string name = 1;
+}
+
+message HelloReply {
+    required string message = 1;
+}
+
 
 message GetRequest {
     required string collection = 1;
