@@ -4,6 +4,6 @@ package com.scalableminds.kvservice.proto;
 
 import "messages.proto";
 
-service Greeter {
-    rpc SayHello (HelloRequest) returns (HelloReply) {}
+service Store {
+    rpc Get (GetRequest) returns (GetReply) {}
 }

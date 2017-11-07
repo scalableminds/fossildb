@@ -1,14 +1,29 @@
 package com.scalableminds.kvservice
 
-import com.scalableminds.kvservice.proto.messages.{HelloReply, HelloRequest}
-import com.scalableminds.kvservice.proto.rpcs.GreeterGrpc
+import java.nio.file.Paths
+
+import com.scalableminds.kvservice.db.{RocksDBManager, RocksDBStore}
+import com.scalableminds.kvservice.proto.messages.{GetReply, GetRequest}
+import com.scalableminds.kvservice.proto.rpcs.StoreGrpc
 import io.grpc.ManagedChannelBuilder
 
 import scala.concurrent.ExecutionContext
 
-object Hi {
+object KVService {
   def main(args: Array[String]) = {
-    val server = new HelloWorldServer(8090, ExecutionContext.global)
+
+    val dataDir = Paths.get("data")
+    val columnFamilies = List("skeletons", "skeletonUpdates", "volumes", "volumeData")
+
+    val rocksDBMangaer = new RocksDBManager(dataDir, columnFamilies)
+
+    val stores = columnFamilies.map { cf =>
+      val skeletonStore: RocksDBStore = rocksDBMangaer.getStoreForColumnFamily(cf).get
+      (cf, skeletonStore)
+    }
+
+    val server = new KVServer(stores, 8090, ExecutionContext.global)
+
     server.start()
     runTestClient()
     server.blockUntilShutdown()
@@ -17,10 +32,10 @@ object Hi {
   def runTestClient() = {
 
     val channel = ManagedChannelBuilder.forAddress("localhost", 8090).usePlaintext(true).build
-    val request = HelloRequest(name = "World")
+    val request = GetRequest(collection = "skeletons", key = "aKey", version = 0)
 
-    val blockingStub = GreeterGrpc.blockingStub(channel)
-    val reply: HelloReply = blockingStub.sayHello(request)
+    val blockingStub = StoreGrpc.blockingStub(channel)
+    val reply: GetReply = blockingStub.get(request)
     println("got reply", reply)
   }
 }

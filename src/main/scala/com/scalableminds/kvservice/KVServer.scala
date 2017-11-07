@@ -3,16 +3,17 @@
  */
 package com.scalableminds.kvservice
 
-import com.scalableminds.kvservice.proto.rpcs.GreeterGrpc
+import com.scalableminds.kvservice.db.RocksDBStore
+import com.scalableminds.kvservice.proto.rpcs.StoreGrpc
 import io.grpc.{Server, ServerBuilder}
 
 import scala.concurrent.ExecutionContext
 
-class HelloWorldServer(port: Int, executionContext: ExecutionContext) { self =>
+class KVServer(stores: List[(String, RocksDBStore)], port: Int, executionContext: ExecutionContext) { self =>
   private[this] var server: Server = null
 
   def start(): Unit = {
-    server = ServerBuilder.forPort(port).addService(GreeterGrpc.bindService(new GreeterImpl, executionContext)).build.start
+    server = ServerBuilder.forPort(port).addService(StoreGrpc.bindService(new StoreImpl(stores), executionContext)).build.start
     println("Server started, listening on " + port)
     sys.addShutdownHook {
       System.err.println("*** shutting down gRPC server since JVM is shutting down")
