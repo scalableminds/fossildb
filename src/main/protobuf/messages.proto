@@ -1,0 +1,13 @@
+syntax = "proto2";
+
+package com.scalableminds.kvservice.messages;
+
+message GetRequest {
+    required string collection = 1;
+    required string key = 2;
+    required uint64 version = 3;
+}
+
+message GetReply {
+    required bytes value = 4;
+}
