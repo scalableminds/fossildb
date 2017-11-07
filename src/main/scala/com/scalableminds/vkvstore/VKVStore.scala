@@ -1,16 +1,16 @@
-package com.scalableminds.kvservice
+package com.scalableminds.vkvstore
 
 import java.nio.file.Paths
 
 import com.google.protobuf.ByteString
-import com.scalableminds.kvservice.db.{RocksDBManager, VersionedKeyValueStore}
-import com.scalableminds.kvservice.proto.messages._
-import com.scalableminds.kvservice.proto.rpcs.StoreGrpc
+import com.scalableminds.vkvstore.db.{RocksDBManager, VersionedKeyValueStore}
+import com.scalableminds.vkvstore.proto.messages._
+import com.scalableminds.vkvstore.proto.rpcs.StoreGrpc
 import io.grpc.ManagedChannelBuilder
 
 import scala.concurrent.ExecutionContext
 
-object KVService {
+object VKVStore {
   def main(args: Array[String]) = {
 
     val dataDir = Paths.get("data")
@@ -23,7 +23,7 @@ object KVService {
       (cf -> skeletonStore)
     }.toMap
 
-    val server = new KVServer(stores, 8090, ExecutionContext.global)
+    val server = new StoreServer(stores, 8090, ExecutionContext.global)
 
     server.start()
     runTestClient()

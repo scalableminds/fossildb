@@ -1,6 +1,6 @@
 syntax = "proto2";
 
-package com.scalableminds.kvservice.proto;
+package com.scalableminds.vkvstore.proto;
 
 message GetRequest {
     required string collection = 1;

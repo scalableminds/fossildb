@@ -1,4 +1,4 @@
-name := "kvservice"
+name := "vkv-store"
 
 version := "1.0"
 
@@ -14,4 +14,4 @@ PB.targets in Compile := Seq(
   scalapb.gen() -> (sourceManaged in Compile).value
 )
 
-mainClass in Compile := Some("com.scalableminds.kvservice.KVService")
+mainClass in Compile := Some("com.scalableminds.vkvstore.VKVStore")

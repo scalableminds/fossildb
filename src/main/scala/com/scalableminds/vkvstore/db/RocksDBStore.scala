@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2011-2017 scalable minds UG (haftungsbeschränkt) & Co. KG. <http://scm.io>
  */
-package com.scalableminds.kvservice.db
+package com.scalableminds.vkvstore.db
 
 import java.nio.file.{Files, Path}
 import java.util

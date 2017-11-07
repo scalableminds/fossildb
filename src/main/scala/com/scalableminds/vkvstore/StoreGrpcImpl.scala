@@ -1,16 +1,16 @@
 /*
  * Copyright (C) 2011-2017 scalable minds UG (haftungsbeschränkt) & Co. KG. <http://scm.io>
  */
-package com.scalableminds.kvservice
+package com.scalableminds.vkvstore
 
 import com.google.protobuf.ByteString
-import com.scalableminds.kvservice.db.VersionedKeyValueStore
-import com.scalableminds.kvservice.proto.messages._
-import com.scalableminds.kvservice.proto.rpcs.StoreGrpc
+import com.scalableminds.vkvstore.db.VersionedKeyValueStore
+import com.scalableminds.vkvstore.proto.messages._
+import com.scalableminds.vkvstore.proto.rpcs.StoreGrpc
 
 import scala.concurrent.Future
 
-class StoreImpl(stores: Map[String, VersionedKeyValueStore]) extends StoreGrpc.Store {
+class StoreGrpcImpl(stores: Map[String, VersionedKeyValueStore]) extends StoreGrpc.Store {
   override def get(req: GetRequest) = {
     try {
       val store = stores.get(req.collection).get
