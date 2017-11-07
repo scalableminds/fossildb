@@ -71,5 +71,9 @@ class RocksDBStore(db: RocksDB, handle: ColumnFamilyHandle) {
     db.put(handle, key.getBytes(), value)
   }
 
+  def delete(key: String) = {
+    db.delete(handle, key.getBytes())
+  }
+
 }
 

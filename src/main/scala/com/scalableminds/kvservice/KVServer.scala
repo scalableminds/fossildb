@@ -9,7 +9,7 @@ import io.grpc.{Server, ServerBuilder}
 
 import scala.concurrent.ExecutionContext
 
-class KVServer(stores: List[(String, RocksDBStore)], port: Int, executionContext: ExecutionContext) { self =>
+class KVServer(stores: Map[String, RocksDBStore], port: Int, executionContext: ExecutionContext) { self =>
   private[this] var server: Server = null
 
   def start(): Unit = {

@@ -6,4 +6,6 @@ import "messages.proto";
 
 service Store {
     rpc Get (GetRequest) returns (GetReply) {}
+    rpc Put (PutRequest) returns (PutReply) {}
+    rpc Delete (DeleteRequest) returns (DeleteReply) {}
 }
