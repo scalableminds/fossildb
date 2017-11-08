@@ -14,7 +14,7 @@ class StoreGrpcImpl(stores: Map[String, VersionedKeyValueStore]) extends StoreGr
   override def get(req: GetRequest) = {
     try {
       val store = stores.get(req.collection).get
-      val versionedKeyValuePair = store.get(req.key).get
+      val versionedKeyValuePair = store.get(req.key, req.version).get
       Future.successful(GetReply(true, ByteString.copyFrom(versionedKeyValuePair.value), versionedKeyValuePair.version))
     } catch {
       case e: Exception => Future.successful(GetReply(false, ByteString.EMPTY, 0))

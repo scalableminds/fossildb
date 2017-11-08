@@ -86,7 +86,6 @@ class RocksDBStore(db: RocksDB, handle: ColumnFamilyHandle) {
     new RocksDBIterator(it, prefix)
   }
 
-
   def put(key: String, value: Array[Byte]) = {
     db.put(handle, key.getBytes(), value)
   }

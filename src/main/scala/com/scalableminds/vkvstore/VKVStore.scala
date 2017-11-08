@@ -19,21 +19,20 @@ object VKVStore {
     val rocksDBMangaer = new RocksDBManager(dataDir, columnFamilies)
 
     val stores = columnFamilies.map { cf =>
-      val skeletonStore: VersionedKeyValueStore = new VersionedKeyValueStore(rocksDBMangaer.getStoreForColumnFamily(cf).get)
-      (cf -> skeletonStore)
+      val store: VersionedKeyValueStore = new VersionedKeyValueStore(rocksDBMangaer.getStoreForColumnFamily(cf).get)
+      (cf -> store)
     }.toMap
 
     val server = new StoreServer(stores, 8090, ExecutionContext.global)
 
     server.start()
-    runTestClient()
-    // server.blockUntilShutdown()
+    //runTestClient()
+    server.blockUntilShutdown()
   }
 
   def runTestClient() = {
     val channel = ManagedChannelBuilder.forAddress("localhost", 8090).usePlaintext(true).build
     val blockingStub = StoreGrpc.blockingStub(channel)
-
 
     val deleteReply: DeleteReply = blockingStub.delete(DeleteRequest(collection = "collection1", key = "aKey", version = 0))
     println("tried delete v0. reply: ", deleteReply)
@@ -41,7 +40,7 @@ object VKVStore {
     val deleteReply2: DeleteReply = blockingStub.delete(DeleteRequest(collection = "collection1", key = "aKey", version = 1))
     println("tried delete v1. reply: ", deleteReply2)
 
-    val getReply: GetReply = blockingStub.get(GetRequest(collection = "collection1", key = "aKey", version = 0))
+    val getReply: GetReply = blockingStub.get(GetRequest(collection = "collection1", key = "aKey", version = Some(0)))
     println("tried get v0. reply: ", getReply)
 
     val putReply: PutReply = blockingStub.put(PutRequest(collection = "collection1", key = "aKey", version = 0, value = ByteString.copyFromUtf8("aValue")))
@@ -50,13 +49,13 @@ object VKVStore {
     val putReply2: PutReply = blockingStub.put(PutRequest(collection = "collection1", key = "aKey", version = 1, value = ByteString.copyFromUtf8("aValue")))
     println("tried put v1. reply: ", putReply2)
 
-    val getReply3: GetReply = blockingStub.get(GetRequest(collection = "collection1", key = "aKey", version = 0))
+    val getReply3: GetReply = blockingStub.get(GetRequest(collection = "collection1", key = "aKey", version = Some(0)))
     println("tried get again v0. reply: ", getReply3)
 
-    val getReply4: GetReply = blockingStub.get(GetRequest(collection = "collection1", key = "aKey", version = 1))
+    val getReply4: GetReply = blockingStub.get(GetRequest(collection = "collection1", key = "aKey", version = Some(1)))
     println("tried get again v1. reply: ", getReply4)
 
-    val getReply5: GetReply = blockingStub.get(GetRequest(collection = "collection1", key = "aKey", version = 1))
+    val getReply5: GetReply = blockingStub.get(GetRequest(collection = "collection1", key = "aKey", version = Some(1)))
     println("tried get again v2. reply: ", getReply5)
   }
 }
