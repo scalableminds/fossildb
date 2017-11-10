@@ -6,6 +6,7 @@ import com.google.protobuf.ByteString
 import com.scalableminds.vkvstore.db.{RocksDBManager, VersionedKeyValueStore}
 import com.scalableminds.vkvstore.proto.messages._
 import com.scalableminds.vkvstore.proto.rpcs.StoreGrpc
+import com.scalableminds.vkvstore.proto.rpcs.StoreGrpc.StoreBlockingStub
 import io.grpc.ManagedChannelBuilder
 
 import scala.concurrent.ExecutionContext
@@ -26,14 +27,18 @@ object VKVStore {
     val server = new StoreServer(stores, 8090, ExecutionContext.global)
 
     server.start()
-    //runTestClient()
-    server.blockUntilShutdown()
+    runTestClient()
+    //server.blockUntilShutdown()
   }
 
   def runTestClient() = {
     val channel = ManagedChannelBuilder.forAddress("localhost", 8090).usePlaintext(true).build
     val blockingStub = StoreGrpc.blockingStub(channel)
+    testGetPutDelete(blockingStub)
+    testGetVersions(blockingStub)
+  }
 
+  def testGetPutDelete(blockingStub: StoreBlockingStub) = {
     val deleteReply: DeleteReply = blockingStub.delete(DeleteRequest(collection = "collection1", key = "aKey", version = 0))
     println("tried delete v0. reply: ", deleteReply)
 
@@ -57,5 +62,23 @@ object VKVStore {
 
     val getReply5: GetReply = blockingStub.get(GetRequest(collection = "collection1", key = "aKey", version = Some(1)))
     println("tried get again v2. reply: ", getReply5)
+  }
+
+  def testGetVersions(blockingStub: StoreBlockingStub) = {
+    val collection = "collection1"
+    val key = "bKey"
+
+    blockingStub.put(PutRequest(collection, key, 2, ByteString.copyFromUtf8("version2")))
+    blockingStub.put(PutRequest(collection, key, 3, ByteString.copyFromUtf8("version3")))
+    blockingStub.put(PutRequest(collection, key, 3, ByteString.copyFromUtf8("version3-updated")))
+    blockingStub.put(PutRequest(collection, key, 4, ByteString.copyFromUtf8("version4")))
+    blockingStub.put(PutRequest(collection, key, 6, ByteString.copyFromUtf8("version6")))
+
+    val getVersionsReply = blockingStub.getMultipleVersions(GetMultipleVersionsRequest(collection, key))
+    println("getVersions all: ", getVersionsReply)
+
+
+    val getVersionsReply2 = blockingStub.getMultipleVersions(GetMultipleVersionsRequest(collection, key, Some(3), Some(4)))
+    println("getVersions some: ", getVersionsReply2)
   }
 }

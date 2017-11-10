@@ -12,6 +12,7 @@ import scala.concurrent.Future
 
 class StoreGrpcImpl(stores: Map[String, VersionedKeyValueStore]) extends StoreGrpc.Store {
   override def get(req: GetRequest) = {
+    println("received get request")
     try {
       val store = stores.get(req.collection).get
       val versionedKeyValuePair = store.get(req.key, req.version).get
@@ -25,6 +26,7 @@ class StoreGrpcImpl(stores: Map[String, VersionedKeyValueStore]) extends StoreGr
     val store = stores.get(req.collection).get
 
     try {
+      require(req.version >= 0, "Version numbers must be non-negative")
       store.put(req.key, req.version, req.value.toByteArray)
       Future.successful(PutReply(true))
     } catch {
@@ -40,6 +42,17 @@ class StoreGrpcImpl(stores: Map[String, VersionedKeyValueStore]) extends StoreGr
       Future.successful(DeleteReply(true))
     } catch {
       case e: Exception => Future.successful(DeleteReply(false))
+    }
+  }
+
+  override def getMultipleVersions(req: GetMultipleVersionsRequest) = {
+    val store = stores.get(req.collection).get
+
+    try {
+      val values = store.getMultipleVersions(req.key, req.oldestVersion, req.newestVersion)
+      Future.successful(GetMultipleVersionsReply(true, values.map(ByteString.copyFrom(_))))
+    } catch {
+      case e: Exception => Future.successful(GetMultipleVersionsReply(false))
     }
   }
 

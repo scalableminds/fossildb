@@ -6,6 +6,7 @@ import "messages.proto";
 
 service Store {
     rpc Get (GetRequest) returns (GetReply) {}
+    rpc GetMultipleVersions (GetMultipleVersionsRequest) returns (GetMultipleVersionsReply) {}
     rpc Put (PutRequest) returns (PutReply) {}
     rpc Delete (DeleteRequest) returns (DeleteReply) {}
 }

@@ -34,3 +34,15 @@ message DeleteRequest {
 message DeleteReply {
     required bool success = 1;
 }
+
+message GetMultipleVersionsRequest {
+    required string collection = 1;
+    required string key = 2;
+    optional uint64 newestVersion = 4;
+    optional uint64 oldestVersion = 3;
+}
+
+message GetMultipleVersionsReply {
+    required bool success = 1;
+    repeated bytes values = 2;
+}

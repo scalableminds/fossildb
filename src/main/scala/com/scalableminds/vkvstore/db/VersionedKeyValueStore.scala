@@ -60,7 +60,23 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
   def get(key: String, version: Option[Long] = None): Option[VersionedKeyValuePair[Array[Byte]]] =
     scanVersions(key, version).toStream.headOption
 
-  def scanVersions(key: String, version: Option[Long] = None): Iterator[VersionedKeyValuePair[Array[Byte]]] = {
+  def getMultipleVersions(key: String, oldestVersion: Option[Long] = None, newestVersion: Option[Long] = None) = {
+
+    def toListIter(versionIterator: Iterator[VersionedKeyValuePair[Array[Byte]]],
+                   acc: List[Array[Byte]]): List[Array[Byte]] = {
+      if (!versionIterator.hasNext) acc
+      else {
+        val item = versionIterator.next()
+        if (item.version < oldestVersion.getOrElse(0L)) acc
+        else toListIter(versionIterator, item.value :: acc)
+      }
+    }
+
+    val iterator = scanVersions(key, newestVersion)
+    toListIter(iterator, List())
+  }
+
+  private def scanVersions(key: String, version: Option[Long] = None): Iterator[VersionedKeyValuePair[Array[Byte]]] = {
     val prefix = s"$key@"
     underlying.scan(version.map(VersionedKey(key, _).toString).getOrElse(prefix), Some(prefix)).flatMap { pair =>
       VersionedKey(pair.key).map(VersionedKeyValuePair(_, pair.value))
