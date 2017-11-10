@@ -56,4 +56,15 @@ class StoreGrpcImpl(stores: Map[String, VersionedKeyValueStore]) extends StoreGr
     }
   }
 
+  override def getMultipleKeys(req: GetMultipleKeysRequest) = {
+    val store = stores.get(req.collection).get
+
+    try {
+      val (keys, values) = store.getMultipleKeys(req.key, req.prefix, req.version)
+      Future.successful(GetMultipleKeysReply(true, keys, values.map(ByteString.copyFrom(_))))
+    } catch {
+      case e: Exception => Future.successful(GetMultipleKeysReply(false))
+    }
+  }
+
 }

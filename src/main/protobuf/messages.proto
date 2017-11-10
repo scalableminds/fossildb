@@ -46,3 +46,16 @@ message GetMultipleVersionsReply {
     required bool success = 1;
     repeated bytes values = 2;
 }
+
+message GetMultipleKeysRequest {
+    required string collection = 1;
+    required string key = 2;
+    optional string prefix = 3;
+    optional uint64 version = 4;
+}
+
+message GetMultipleKeysReply {
+    required bool success = 1;
+    repeated string keys = 2;
+    repeated bytes values = 3;
+}

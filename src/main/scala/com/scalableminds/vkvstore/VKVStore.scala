@@ -15,7 +15,7 @@ object VKVStore {
   def main(args: Array[String]) = {
 
     val dataDir = Paths.get("data")
-    val columnFamilies = List("collection1", "collection2")
+    val columnFamilies = List("skeletons", "skeletonUpdates", "volumes", "volumeData")
 
     val rocksDBMangaer = new RocksDBManager(dataDir, columnFamilies)
 
@@ -27,8 +27,12 @@ object VKVStore {
     val server = new StoreServer(stores, 8090, ExecutionContext.global)
 
     server.start()
-    runTestClient()
-    //server.blockUntilShutdown()
+    //runTestClient()
+    server.blockUntilShutdown()
+    //TODO: close rocksdb on shutdown?
+
+
+    //TODO: val backupInProgress = new AtomicBoolean(false)
   }
 
   def runTestClient() = {

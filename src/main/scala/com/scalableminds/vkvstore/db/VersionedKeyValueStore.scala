@@ -83,7 +83,15 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
     }
   }
 
-  def scanKeys(key: String, prefix: Option[String] = None, version: Option[Long] = None): Iterator[VersionedKeyValuePair[Array[Byte]]] =
+  def getMultipleKeys(key: String, prefix: Option[String] = None, version: Option[Long] = None): (Seq[String], Seq[Array[Byte]]) = {
+    val iterator: Iterator[VersionedKeyValuePair[Array[Byte]]] = scanKeys(key, prefix, version)
+    val asSequence = iterator.toSeq
+    val keys = asSequence.map(_.key)
+    val values = asSequence.map(_.value)
+    (keys, values)
+  }
+
+  private def scanKeys(key: String, prefix: Option[String] = None, version: Option[Long] = None): Iterator[VersionedKeyValuePair[Array[Byte]]] =
     new VersionFilterIterator(underlying.scan(key, prefix), version)
 
   def put(key: String, version: Long, value: Array[Byte]): Unit =
