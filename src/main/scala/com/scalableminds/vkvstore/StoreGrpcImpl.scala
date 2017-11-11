@@ -4,17 +4,17 @@
 package com.scalableminds.vkvstore
 
 import com.google.protobuf.ByteString
-import com.scalableminds.vkvstore.db.VersionedKeyValueStore
+import com.scalableminds.vkvstore.db.StoreManager
 import com.scalableminds.vkvstore.proto.messages._
 import com.scalableminds.vkvstore.proto.rpcs.StoreGrpc
 
 import scala.concurrent.Future
 
-class StoreGrpcImpl(stores: Map[String, VersionedKeyValueStore]) extends StoreGrpc.Store {
+class StoreGrpcImpl(storeManager: StoreManager) extends StoreGrpc.Store {
   override def get(req: GetRequest) = {
     println("received get request")
     try {
-      val store = stores.get(req.collection).get
+      val store = storeManager.getStore(req.collection)
       val versionedKeyValuePair = store.get(req.key, req.version).get
       Future.successful(GetReply(true, ByteString.copyFrom(versionedKeyValuePair.value), versionedKeyValuePair.version))
     } catch {
@@ -23,7 +23,7 @@ class StoreGrpcImpl(stores: Map[String, VersionedKeyValueStore]) extends StoreGr
   }
 
   override def put(req: PutRequest) = {
-    val store = stores.get(req.collection).get
+    val store = storeManager.getStore(req.collection)
 
     try {
       require(req.version >= 0, "Version numbers must be non-negative")
@@ -35,7 +35,7 @@ class StoreGrpcImpl(stores: Map[String, VersionedKeyValueStore]) extends StoreGr
   }
 
   override def delete(req: DeleteRequest) = {
-    val store = stores.get(req.collection).get
+    val store = storeManager.getStore(req.collection)
 
     try {
       store.delete(req.key, req.version)
@@ -46,7 +46,7 @@ class StoreGrpcImpl(stores: Map[String, VersionedKeyValueStore]) extends StoreGr
   }
 
   override def getMultipleVersions(req: GetMultipleVersionsRequest) = {
-    val store = stores.get(req.collection).get
+    val store = storeManager.getStore(req.collection)
 
     try {
       val values = store.getMultipleVersions(req.key, req.oldestVersion, req.newestVersion)
@@ -57,7 +57,7 @@ class StoreGrpcImpl(stores: Map[String, VersionedKeyValueStore]) extends StoreGr
   }
 
   override def getMultipleKeys(req: GetMultipleKeysRequest) = {
-    val store = stores.get(req.collection).get
+    val store = storeManager.getStore(req.collection)
 
     try {
       val (keys, values) = store.getMultipleKeys(req.key, req.prefix, req.version)

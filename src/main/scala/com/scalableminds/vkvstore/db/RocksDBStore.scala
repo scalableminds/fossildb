@@ -15,7 +15,7 @@ case class BackupInfo(id: String, timestamp: Long, size: Long)
 
 case class KeyValuePair[T](key: String, value: T)
 
-class RocksDBManager(path: Path, columnFamilies: List[String]) {
+class RocksDBManager(dataDir: Path, columnFamilies: List[String]) {
 
   val (db, columnFamilyHandles) = {
     RocksDB.loadLibrary()
@@ -32,7 +32,7 @@ class RocksDBManager(path: Path, columnFamilies: List[String]) {
       .setCreateMissingColumnFamilies(true)
     val db = RocksDB.open(
       options,
-      path.toAbsolutePath.toString,
+      dataDir.toAbsolutePath.toString,
       columnFamilyDescriptors.asJava,
       columnFamilyHandles)
     (db, columnFamilies.zip(columnFamilyHandles.asScala).toMap)
