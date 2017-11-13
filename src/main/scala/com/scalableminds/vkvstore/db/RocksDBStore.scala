@@ -11,7 +11,7 @@ import org.rocksdb._
 import scala.collection.JavaConverters._
 import scala.concurrent.Future
 
-case class BackupInfo(id: String, timestamp: Long, size: Long)
+case class BackupInfo(id: Int, timestamp: Long, size: Long)
 
 case class KeyValuePair[T](key: String, value: T)
 
@@ -50,11 +50,17 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String]) {
     }
 
     ensureDirectory(backupDir)
-    RocksDB.loadLibrary()
+    RocksDB.loadLibrary
     val backupEngine = BackupEngine.open(Env.getDefault, new BackupableDBOptions(backupDir.toString))
     backupEngine.createNewBackup(db)
     backupEngine.purgeOldBackups(1)
-    backupEngine.getBackupInfo.asScala.headOption.map(info => BackupInfo(info.backupId.toString, info.timestamp, info.size))
+    backupEngine.getBackupInfo.asScala.headOption.map(info => BackupInfo(info.backupId, info.timestamp, info.size))
+  }
+
+  def restoreFromBackup(backupDir: Path) = {
+    RocksDB.loadLibrary
+    val backupEngine = BackupEngine.open(Env.getDefault, new BackupableDBOptions(backupDir.toString))
+    backupEngine.restoreDbFromLatestBackup(dataDir.toString, dataDir.toString, new RestoreOptions(true))
   }
 
   def close(): Future[Unit] = {

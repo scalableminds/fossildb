@@ -16,6 +16,7 @@ import scala.concurrent.Future
 class StoreGrpcImpl(storeManager: StoreManager) extends StoreGrpc.Store with LazyLogging {
   override def get(req: GetRequest) = {
     try {
+      logger.info("received get: " + req.toString.replaceAll("\n"," "))
       val store = storeManager.getStore(req.collection)
       val versionedKeyValuePair = store.get(req.key, req.version).get
       Future.successful(GetReply(true, None, ByteString.copyFrom(versionedKeyValuePair.value), versionedKeyValuePair.version))
@@ -26,6 +27,7 @@ class StoreGrpcImpl(storeManager: StoreManager) extends StoreGrpc.Store with Laz
 
   override def put(req: PutRequest) = {
     try {
+      logger.info("received put: " + req.toString.replaceAll("\n"," "))
       val store = storeManager.getStore(req.collection)
       require(req.version >= 0, "Version numbers must be non-negative")
       store.put(req.key, req.version, req.value.toByteArray)
@@ -37,6 +39,7 @@ class StoreGrpcImpl(storeManager: StoreManager) extends StoreGrpc.Store with Laz
 
   override def delete(req: DeleteRequest) = {
     try {
+      logger.info("received delete: " + req.toString.replaceAll("\n"," "))
       val store = storeManager.getStore(req.collection)
       store.delete(req.key, req.version)
       Future.successful(DeleteReply(true))
@@ -47,6 +50,7 @@ class StoreGrpcImpl(storeManager: StoreManager) extends StoreGrpc.Store with Laz
 
   override def getMultipleVersions(req: GetMultipleVersionsRequest) = {
     try {
+      logger.info("received getMultipleVersions: " + req.toString.replaceAll("\n"," "))
       val store = storeManager.getStore(req.collection)
       val values = store.getMultipleVersions(req.key, req.oldestVersion, req.newestVersion)
       Future.successful(GetMultipleVersionsReply(true, None, values.map(ByteString.copyFrom(_))))
@@ -57,6 +61,7 @@ class StoreGrpcImpl(storeManager: StoreManager) extends StoreGrpc.Store with Laz
 
   override def getMultipleKeys(req: GetMultipleKeysRequest) = {
     try {
+      logger.info("received getMultipleKeys: " + req.toString.replaceAll("\n"," "))
       val store = storeManager.getStore(req.collection)
       val (keys, values) = store.getMultipleKeys(req.key, req.prefix, req.version)
       Future.successful(GetMultipleKeysReply(true, None, keys, values.map(ByteString.copyFrom(_))))
@@ -66,6 +71,7 @@ class StoreGrpcImpl(storeManager: StoreManager) extends StoreGrpc.Store with Laz
   }
 
   override def backup(req: BackupRequest) = {
+    logger.info("received backup: " + req.toString.replaceAll("\n"," "))
     if (storeManager.backupInProgress.compareAndSet(false, true)) {
       try {
         val backupInfoOpt = storeManager.backup
@@ -74,16 +80,24 @@ class StoreGrpcImpl(storeManager: StoreManager) extends StoreGrpc.Store with Laz
           case _ => throw new Exception("Backup did not return valid BackupInfo")
         }
       } catch {
-        case e: Exception => log(e); Future.successful(BackupReply(false, Some("Could not do backup: " + e.toString), "", 0, 0))
+        case e: Exception => log(e); Future.successful(BackupReply(false, Some("Could not do backup: " + e.toString), 0, 0, 0))
       } finally {
         storeManager.backupInProgress.set(false)
       }
     } else {
-      Future.successful(BackupReply(false, Some("Backup already in progress."), "", 0, 0))
+      Future.successful(BackupReply(false, Some("Backup already in progress."), 0, 0, 0))
     }
   }
 
-  override def restoreFromBackup(req: RestoreFromBackupRequest) = ???
+  override def restoreFromBackup(req: RestoreFromBackupRequest) = {
+    try {
+      logger.info("received restoreFromBackup: " + req.toString.replaceAll("\n"," "))
+      storeManager.restoreFromBackup
+      Future.successful(RestoreFromBackupReply(true))
+    } catch {
+      case e: Exception => log(e); Future.successful(RestoreFromBackupReply(false, Some("Could not restore from backup: " + e.toString)))
+    }
+  }
 
   private def log(e: Exception) = logger.error(getStackTraceAsString(e))
 
