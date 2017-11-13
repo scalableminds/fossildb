@@ -3,21 +3,24 @@
  */
 package com.scalableminds.vkvstore
 
+import java.io.{PrintWriter, StringWriter}
+
 import com.google.protobuf.ByteString
 import com.scalableminds.vkvstore.db.StoreManager
 import com.scalableminds.vkvstore.proto.messages._
 import com.scalableminds.vkvstore.proto.rpcs.StoreGrpc
+import com.typesafe.scalalogging.LazyLogging
 
 import scala.concurrent.Future
 
-class StoreGrpcImpl(storeManager: StoreManager) extends StoreGrpc.Store {
+class StoreGrpcImpl(storeManager: StoreManager) extends StoreGrpc.Store with LazyLogging {
   override def get(req: GetRequest) = {
     try {
       val store = storeManager.getStore(req.collection)
       val versionedKeyValuePair = store.get(req.key, req.version).get
       Future.successful(GetReply(true, None, ByteString.copyFrom(versionedKeyValuePair.value), versionedKeyValuePair.version))
     } catch {
-      case e: Exception => Future.successful(GetReply(false, Some(e.getStackTrace.mkString("\n")), ByteString.EMPTY, 0))
+      case e: Exception => log(e); Future.successful(GetReply(false, Some(e.toString), ByteString.EMPTY, 0))
     }
   }
 
@@ -28,7 +31,7 @@ class StoreGrpcImpl(storeManager: StoreManager) extends StoreGrpc.Store {
       store.put(req.key, req.version, req.value.toByteArray)
       Future.successful(PutReply(true))
     } catch {
-      case e: Exception => Future.successful(PutReply(false, Some(e.getStackTrace.mkString("\n"))))
+      case e: Exception => log(e); Future.successful(PutReply(false, Some(e.toString)))
     }
   }
 
@@ -38,7 +41,7 @@ class StoreGrpcImpl(storeManager: StoreManager) extends StoreGrpc.Store {
       store.delete(req.key, req.version)
       Future.successful(DeleteReply(true))
     } catch {
-      case e: Exception => Future.successful(DeleteReply(false, Some(e.getStackTrace.mkString("\n"))))
+      case e: Exception => log(e); Future.successful(DeleteReply(false, Some(e.toString)))
     }
   }
 
@@ -48,7 +51,7 @@ class StoreGrpcImpl(storeManager: StoreManager) extends StoreGrpc.Store {
       val values = store.getMultipleVersions(req.key, req.oldestVersion, req.newestVersion)
       Future.successful(GetMultipleVersionsReply(true, None, values.map(ByteString.copyFrom(_))))
     } catch {
-      case e: Exception => Future.successful(GetMultipleVersionsReply(false, Some(e.getStackTrace.mkString("\n"))))
+      case e: Exception => log(e); Future.successful(GetMultipleVersionsReply(false, Some(e.toString)))
     }
   }
 
@@ -58,7 +61,7 @@ class StoreGrpcImpl(storeManager: StoreManager) extends StoreGrpc.Store {
       val (keys, values) = store.getMultipleKeys(req.key, req.prefix, req.version)
       Future.successful(GetMultipleKeysReply(true, None, keys, values.map(ByteString.copyFrom(_))))
     } catch {
-      case e: Exception => Future.successful(GetMultipleKeysReply(false, Some(e.getStackTrace.mkString("\n"))))
+      case e: Exception => log(e); Future.successful(GetMultipleKeysReply(false, Some(e.toString)))
     }
   }
 
@@ -71,7 +74,7 @@ class StoreGrpcImpl(storeManager: StoreManager) extends StoreGrpc.Store {
           case _ => throw new Exception("Backup did not return valid BackupInfo")
         }
       } catch {
-        case e: Exception => Future.successful(BackupReply(false, Some("Could not do backup: " + e.toString), "", 0, 0))
+        case e: Exception => log(e); Future.successful(BackupReply(false, Some("Could not do backup: " + e.toString), "", 0, 0))
       } finally {
         storeManager.backupInProgress.set(false)
       }
@@ -82,4 +85,11 @@ class StoreGrpcImpl(storeManager: StoreManager) extends StoreGrpc.Store {
 
   override def restoreFromBackup(req: RestoreFromBackupRequest) = ???
 
+  private def log(e: Exception) = logger.error(getStackTraceAsString(e))
+
+  private def getStackTraceAsString(t: Throwable) = {
+    val sw = new StringWriter
+    t.printStackTrace(new PrintWriter(sw))
+    sw.toString
+  }
 }

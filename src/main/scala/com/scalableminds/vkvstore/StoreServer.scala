@@ -3,22 +3,24 @@
  */
 package com.scalableminds.vkvstore
 
-import com.scalableminds.vkvstore.db.{StoreManager, VersionedKeyValueStore}
+import com.scalableminds.vkvstore.db.StoreManager
 import com.scalableminds.vkvstore.proto.rpcs.StoreGrpc
+import com.typesafe.scalalogging.LazyLogging
 import io.grpc.{Server, ServerBuilder}
 
 import scala.concurrent.ExecutionContext
 
-class StoreServer(storeManager: StoreManager, port: Int, executionContext: ExecutionContext) { self =>
+class StoreServer(storeManager: StoreManager, port: Int, executionContext: ExecutionContext) extends LazyLogging
+{ self =>
   private[this] var server: Server = null
 
   def start(): Unit = {
     server = ServerBuilder.forPort(port).addService(StoreGrpc.bindService(new StoreGrpcImpl(storeManager), executionContext)).build.start
-    println("Server started, listening on " + port)
+    logger.info("Server started, listening on " + port)
     sys.addShutdownHook {
-      println("*** shutting down gRPC server since JVM is shutting down")
+      logger.info("*** shutting down gRPC server since JVM is shutting down")
       self.stop()
-      println("*** server shut down")
+      logger.info("*** server shut down")
     }
   }
 

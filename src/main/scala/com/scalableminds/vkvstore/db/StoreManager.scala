@@ -16,7 +16,11 @@ class StoreManager(dataDir: Path, backupDir: Path, columnFamilies: List[String])
   }.toMap
 
   def getStore(columnFamily: String) = {
-    stores.get(columnFamily).get
+    try {
+      stores.get(columnFamily).get
+    } catch {
+      case e: Exception => throw new NoSuchElementException("No store for column family " + columnFamily)
+    }
   }
 
   val backupInProgress = new AtomicBoolean(false)
