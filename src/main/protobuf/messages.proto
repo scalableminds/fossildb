@@ -10,8 +10,9 @@ message GetRequest {
 
 message GetReply {
     required bool success = 1;
-    required bytes value = 2;
-    required uint64 actualVersion = 3;
+    optional string errorMessage = 2;
+    required bytes value = 3;
+    required uint64 actualVersion = 4;
 }
 
 message PutRequest {
@@ -23,6 +24,7 @@ message PutRequest {
 
 message PutReply {
     required bool success = 1;
+    optional string errorMessage = 2;
 }
 
 message DeleteRequest {
@@ -33,6 +35,7 @@ message DeleteRequest {
 
 message DeleteReply {
     required bool success = 1;
+    optional string errorMessage = 2;
 }
 
 message GetMultipleVersionsRequest {
@@ -44,7 +47,8 @@ message GetMultipleVersionsRequest {
 
 message GetMultipleVersionsReply {
     required bool success = 1;
-    repeated bytes values = 2;
+    optional string errorMessage = 2;
+    repeated bytes values = 3;
 }
 
 message GetMultipleKeysRequest {
@@ -56,6 +60,26 @@ message GetMultipleKeysRequest {
 
 message GetMultipleKeysReply {
     required bool success = 1;
-    repeated string keys = 2;
-    repeated bytes values = 3;
+    optional string errorMessage = 2;
+    repeated string keys = 3;
+    repeated bytes values = 4;
+}
+
+message BackupRequest {}
+
+message BackupReply {
+    required bool success = 1;
+    optional string errorMessage = 2;
+    required string id = 3;
+    required uint64 timestamp = 4;
+    required uint64 size = 5;
+}
+
+message RestoreFromBackupRequest {
+    required string id = 1;
+}
+
+message RestoreFromBackupReply {
+    required bool success = 1;
+    optional string errorMessage = 2;
 }

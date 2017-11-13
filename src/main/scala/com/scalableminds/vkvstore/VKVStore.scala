@@ -3,7 +3,7 @@ package com.scalableminds.vkvstore
 import java.nio.file.Paths
 
 import com.google.protobuf.ByteString
-import com.scalableminds.vkvstore.db.{RocksDBManager, StoreManager, VersionedKeyValueStore}
+import com.scalableminds.vkvstore.db.StoreManager
 import com.scalableminds.vkvstore.proto.messages._
 import com.scalableminds.vkvstore.proto.rpcs.StoreGrpc
 import com.scalableminds.vkvstore.proto.rpcs.StoreGrpc.StoreBlockingStub
@@ -15,9 +15,10 @@ object VKVStore {
   def main(args: Array[String]) = {
 
     val dataDir = Paths.get("data")
+    val backupDir = Paths.get("backup")
     val columnFamilies = List("skeletons", "skeletonUpdates", "volumes", "volumeData")
 
-    val storeManager = new StoreManager(dataDir, columnFamilies)
+    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies)
 
     val server = new StoreServer(storeManager, 8090, ExecutionContext.global)
 
@@ -26,8 +27,6 @@ object VKVStore {
     server.blockUntilShutdown()
     //TODO: close rocksdb on shutdown?
 
-
-    //TODO: val backupInProgress = new AtomicBoolean(false)
   }
 
   def runTestClient() = {
