@@ -1,3 +1,3 @@
 # FossilDB
 
-Key-Value Store with RocksDB backend and gRPC API
+Versioned Key-Value Store with RocksDB backend and gRPC API

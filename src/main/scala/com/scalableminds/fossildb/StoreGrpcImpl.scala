@@ -31,7 +31,6 @@ class StoreGrpcImpl(storeManager: StoreManager) extends StoreGrpc.Store with Laz
   override def put(req: PutRequest) = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
     require(req.version >= 0, "Version numbers must be non-negative")
-    throw new Exception("test exception")
     store.put(req.key, req.version, req.value.toByteArray)
     PutReply(true)
   } {errorMsg => PutReply(false, errorMsg)}
