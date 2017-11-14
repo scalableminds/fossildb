@@ -94,10 +94,29 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
   private def scanKeys(key: String, prefix: Option[String] = None, version: Option[Long] = None): Iterator[VersionedKeyValuePair[Array[Byte]]] =
     new VersionFilterIterator(underlying.scan(key, prefix), version)
 
+  def deleteMultipleVersions(key: String, oldestVersion: Option[Long] = None, newestVersion: Option[Long] = None) = {
+    def deleteIter(versionIterator: Iterator[VersionedKeyValuePair[Array[Byte]]]): Unit = {
+      if (versionIterator.hasNext) {
+        val item = versionIterator.next()
+        if (item.version >= oldestVersion.getOrElse(0L)) {
+          delete(item.key, item.version)
+          deleteIter(versionIterator)
+        }
+      }
+    }
+
+    deleteIter(scanVersions(key, newestVersion))
+  }
+
   def put(key: String, version: Long, value: Array[Byte]): Unit =
     underlying.put(VersionedKey(key, version).toString, value)
 
   def delete(key: String, version: Long) =
     underlying.delete(VersionedKey(key, version).toString)
+
+  def listKeys = {
+    val iterator: Iterator[VersionedKeyValuePair[Array[Byte]]] = scanKeys("", None, None)
+    iterator.map(_.key).toSeq
+  }
 
 }

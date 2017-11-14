@@ -76,6 +76,28 @@ class StoreGrpcImpl(storeManager: StoreManager) extends StoreGrpc.Store with Laz
     }
   }
 
+  override def deleteMultipleVersions(req: DeleteMultipleVersionsRequest) = {
+    try {
+      logger.info("received deleteMultipleVersions: " + req.toString.replaceAll("\n", " "))
+      val store = storeManager.getStore(req.collection)
+      store.deleteMultipleVersions(req.key, req.oldestVersion, req.newestVersion)
+      Future.successful(DeleteMultipleVersionsReply(true))
+    } catch {
+      case e: Exception => log(e); Future.successful(DeleteMultipleVersionsReply(false, Some(e.toString)))
+    }
+  }
+
+  override def listKeys(req: ListKeysRequest) = {
+    try {
+      logger.info("received listKeys: " + req.toString.replaceAll("\n", " "))
+      val store = storeManager.getStore(req.collection)
+      val keys = store.listKeys
+      Future.successful(ListKeysReply(true, None, keys))
+    } catch {
+      case e: Exception => log(e); Future.successful(ListKeysReply(false, Some(e.toString)))
+    }
+  }
+
   override def backup(req: BackupRequest) = {
     logger.info("received backup: " + req.toString.replaceAll("\n"," "))
     if (storeManager.backupInProgress.compareAndSet(false, true)) {

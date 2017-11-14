@@ -10,6 +10,8 @@ service Store {
     rpc GetMultipleKeys (GetMultipleKeysRequest) returns (GetMultipleKeysReply) {}
     rpc Put (PutRequest) returns (PutReply) {}
     rpc Delete (DeleteRequest) returns (DeleteReply) {}
+    rpc DeleteMultipleVersions (DeleteMultipleVersionsRequest) returns (DeleteMultipleVersionsReply) {}
+    rpc ListKeys (ListKeysRequest) returns (ListKeysReply) {}
     rpc Backup (BackupRequest) returns (BackupReply) {}
     rpc RestoreFromBackup (RestoreFromBackupRequest) returns (RestoreFromBackupReply) {}
 }

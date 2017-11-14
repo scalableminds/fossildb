@@ -66,6 +66,30 @@ message GetMultipleKeysReply {
     repeated bytes values = 4;
 }
 
+message DeleteMultipleVersionsRequest {
+    required string collection = 1;
+    required string key = 2;
+    optional uint64 newestVersion = 4;
+    optional uint64 oldestVersion = 3;
+}
+
+message DeleteMultipleVersionsReply {
+    required bool success = 1;
+    optional string errorMessage = 2;
+}
+
+message ListKeysRequest {
+    required string collection = 1;
+}
+
+message ListKeysReply {
+    required bool success = 1;
+    optional string errorMessage = 2;
+    repeated string keys = 3;
+}
+
+
+
 message BackupRequest {}
 
 message BackupReply {
