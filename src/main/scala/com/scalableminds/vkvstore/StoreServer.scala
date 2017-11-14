@@ -27,6 +27,7 @@ class StoreServer(storeManager: StoreManager, port: Int, executionContext: Execu
   def stop(): Unit = {
     if (server != null) {
       server.shutdown()
+      storeManager.shutdown
     }
   }
 

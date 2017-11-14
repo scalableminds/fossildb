@@ -7,25 +7,27 @@ import com.scalableminds.vkvstore.db.StoreManager
 import com.scalableminds.vkvstore.proto.messages._
 import com.scalableminds.vkvstore.proto.rpcs.StoreGrpc
 import com.scalableminds.vkvstore.proto.rpcs.StoreGrpc.StoreBlockingStub
+import com.typesafe.config.ConfigFactory
 import io.grpc.ManagedChannelBuilder
 
+import scala.collection.JavaConverters._
 import scala.concurrent.ExecutionContext
 
 object VKVStore {
   def main(args: Array[String]) = {
 
-    val dataDir = Paths.get("data")
-    val backupDir = Paths.get("backup")
-    val columnFamilies = List("skeletons", "skeletonUpdates", "volumes", "volumeData")
+    val conf = ConfigFactory.load
+
+    val dataDir = Paths.get(conf.getString("vkvstore.dataDir"))
+    val backupDir = Paths.get(conf.getString("vkvstore.backupDir"))
+    val columnFamilies = conf.getStringList("vkvstore.columnFamilies").asScala.toList
 
     val storeManager = new StoreManager(dataDir, backupDir, columnFamilies)
 
     val server = new StoreServer(storeManager, 8090, ExecutionContext.global)
 
     server.start()
-    //runTestClient()
     server.blockUntilShutdown()
-    //TODO: close rocksdb on shutdown?
 
   }
 

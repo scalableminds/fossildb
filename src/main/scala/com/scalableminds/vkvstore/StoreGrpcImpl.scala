@@ -18,8 +18,14 @@ class StoreGrpcImpl(storeManager: StoreManager) extends StoreGrpc.Store with Laz
     try {
       logger.info("received get: " + req.toString.replaceAll("\n"," "))
       val store = storeManager.getStore(req.collection)
-      val versionedKeyValuePair = store.get(req.key, req.version).get
-      Future.successful(GetReply(true, None, ByteString.copyFrom(versionedKeyValuePair.value), versionedKeyValuePair.version))
+      val versionedKeyValuePairOpt = store.get(req.key, req.version)
+      versionedKeyValuePairOpt match {
+        case Some(pair) => Future.successful(GetReply(true, None, ByteString.copyFrom(pair.value), pair.version))
+        case None => {
+          if (!(req.mayBeEmpty.getOrElse(false))) throw new NoSuchElementException
+          Future.successful(GetReply(false, Some("No such element"), ByteString.EMPTY, 0))
+        }
+      }
     } catch {
       case e: Exception => log(e); Future.successful(GetReply(false, Some(e.toString), ByteString.EMPTY, 0))
     }

@@ -27,4 +27,6 @@ class StoreManager(dataDir: Path, backupDir: Path, columnFamilies: List[String])
 
   def backup = rocksDBManager.backup(backupDir)
   def restoreFromBackup = rocksDBManager.restoreFromBackup(backupDir)
+
+  def shutdown = rocksDBManager.close
 }

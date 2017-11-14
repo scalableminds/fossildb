@@ -1,6 +1,6 @@
 data
 backup
-
+src/main/resources/application.conf
 
 
 *.class
