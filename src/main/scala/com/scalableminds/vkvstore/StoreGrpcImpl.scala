@@ -91,7 +91,7 @@ class StoreGrpcImpl(storeManager: StoreManager) extends StoreGrpc.Store with Laz
     try {
       logger.info("received listKeys: " + req.toString.replaceAll("\n", " "))
       val store = storeManager.getStore(req.collection)
-      val keys = store.listKeys
+      val keys = store.listKeys(req.limit, req.offset)
       Future.successful(ListKeysReply(true, None, keys))
     } catch {
       case e: Exception => log(e); Future.successful(ListKeysReply(false, Some(e.toString)))

@@ -114,9 +114,9 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
   def delete(key: String, version: Long) =
     underlying.delete(VersionedKey(key, version).toString)
 
-  def listKeys = {
+  def listKeys(limit: Option[Int], offset: Option[Int]) = {
     val iterator: Iterator[VersionedKeyValuePair[Array[Byte]]] = scanKeys("", None, None)
-    iterator.map(_.key).toSeq
+    iterator.map(_.key).drop(offset.getOrElse(0)).take(limit.getOrElse(100000)).toSeq
   }
 
 }

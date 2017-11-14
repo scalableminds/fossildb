@@ -80,6 +80,8 @@ message DeleteMultipleVersionsReply {
 
 message ListKeysRequest {
     required string collection = 1;
+    optional uint32 limit = 2;
+    optional uint32 offset = 3;
 }
 
 message ListKeysReply {
