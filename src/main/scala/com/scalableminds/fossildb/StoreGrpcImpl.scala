@@ -1,14 +1,14 @@
 /*
  * Copyright (C) 2011-2017 scalable minds UG (haftungsbeschränkt) & Co. KG. <http://scm.io>
  */
-package com.scalableminds.vkvstore
+package com.scalableminds.fossildb
 
 import java.io.{PrintWriter, StringWriter}
 
 import com.google.protobuf.ByteString
-import com.scalableminds.vkvstore.db.StoreManager
-import com.scalableminds.vkvstore.proto.messages._
-import com.scalableminds.vkvstore.proto.rpcs.StoreGrpc
+import com.scalableminds.fossildb.db.StoreManager
+import com.scalableminds.fossildb.proto.messages._
+import com.scalableminds.fossildb.proto.rpcs.StoreGrpc
 import com.typesafe.scalalogging.LazyLogging
 
 import scala.concurrent.Future
@@ -68,8 +68,8 @@ class StoreGrpcImpl(storeManager: StoreManager) extends StoreGrpc.Store with Laz
     try {
       logger.debug("received getMultipleVersions: " + req.toString.replaceAll("\n"," "))
       val store = storeManager.getStore(req.collection)
-      val values = store.getMultipleVersions(req.key, req.oldestVersion, req.newestVersion)
-      Future.successful(GetMultipleVersionsReply(true, None, values.map(ByteString.copyFrom(_))))
+      val (values, versions) = store.getMultipleVersions(req.key, req.oldestVersion, req.newestVersion)
+      Future.successful(GetMultipleVersionsReply(true, None, values.map(ByteString.copyFrom(_)), versions))
     } catch {
       case e: Exception => {
         log(e, "getMultipleVersions", req.toString)

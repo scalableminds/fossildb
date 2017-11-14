@@ -1,6 +1,6 @@
-name := "vkv-store"
+name := "fossildb"
 
-version := "1.0"
+version := "0.1"
 
 scalaVersion := "2.11.6"
 
@@ -17,4 +17,4 @@ PB.targets in Compile := Seq(
   scalapb.gen() -> (sourceManaged in Compile).value
 )
 
-mainClass in Compile := Some("com.scalableminds.vkvstore.VKVStore")
+mainClass in Compile := Some("com.scalableminds.fossildb.FossilDB")

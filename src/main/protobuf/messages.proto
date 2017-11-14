@@ -1,6 +1,6 @@
 syntax = "proto2";
 
-package com.scalableminds.vkvstore.proto;
+package com.scalableminds.fossildb.proto;
 
 message GetRequest {
     required string collection = 1;
@@ -50,6 +50,7 @@ message GetMultipleVersionsReply {
     required bool success = 1;
     optional string errorMessage = 2;
     repeated bytes values = 3;
+    repeated uint64 versions = 4;
 }
 
 message GetMultipleKeysRequest {

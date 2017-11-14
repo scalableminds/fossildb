@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2011-2017 scalable minds UG (haftungsbeschränkt) & Co. KG. <http://scm.io>
  */
-package com.scalableminds.vkvstore.db
+package com.scalableminds.fossildb.db
 
 import scala.util.Try
 
@@ -63,17 +63,17 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
   def getMultipleVersions(key: String, oldestVersion: Option[Long] = None, newestVersion: Option[Long] = None) = {
 
     def toListIter(versionIterator: Iterator[VersionedKeyValuePair[Array[Byte]]],
-                   acc: List[Array[Byte]]): List[Array[Byte]] = {
-      if (!versionIterator.hasNext) acc
+                   accValues: List[Array[Byte]], accVersions: List[Long]): (List[Array[Byte]], List[Long]) = {
+      if (!versionIterator.hasNext) (accValues, accVersions)
       else {
         val item = versionIterator.next()
-        if (item.version < oldestVersion.getOrElse(0L)) acc
-        else toListIter(versionIterator, item.value :: acc)
+        if (item.version < oldestVersion.getOrElse(0L)) (accValues, accVersions)
+        else toListIter(versionIterator, item.value :: accValues, item.version :: accVersions)
       }
     }
 
     val iterator = scanVersions(key, newestVersion)
-    toListIter(iterator, List())
+    toListIter(iterator, List(), List())
   }
 
   private def scanVersions(key: String, version: Option[Long] = None): Iterator[VersionedKeyValuePair[Array[Byte]]] = {

@@ -1,10 +1,10 @@
 /*
  * Copyright (C) 2011-2017 scalable minds UG (haftungsbeschränkt) & Co. KG. <http://scm.io>
  */
-package com.scalableminds.vkvstore
+package com.scalableminds.fossildb
 
-import com.scalableminds.vkvstore.db.StoreManager
-import com.scalableminds.vkvstore.proto.rpcs.StoreGrpc
+import com.scalableminds.fossildb.db.StoreManager
+import com.scalableminds.fossildb.proto.rpcs.StoreGrpc
 import com.typesafe.scalalogging.LazyLogging
 import io.grpc.{Server, ServerBuilder}
 
