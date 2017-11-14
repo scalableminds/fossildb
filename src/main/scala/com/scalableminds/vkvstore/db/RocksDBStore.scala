@@ -5,7 +5,9 @@ package com.scalableminds.vkvstore.db
 
 import java.nio.file.{Files, Path}
 import java.util
+import java.util.{Timer, TimerTask}
 
+import com.typesafe.scalalogging.LazyLogging
 import org.rocksdb._
 
 import scala.collection.JavaConverters._
@@ -15,9 +17,9 @@ case class BackupInfo(id: Int, timestamp: Long, size: Long)
 
 case class KeyValuePair[T](key: String, value: T)
 
-class RocksDBManager(dataDir: Path, columnFamilies: List[String]) {
+class RocksDBManager(dataDir: Path, columnFamilies: List[String]) extends LazyLogging {
 
-  val (db, columnFamilyHandles) = {
+  var (db, columnFamilyHandles) = {
     RocksDB.loadLibrary()
     val columnOptions = new ColumnFamilyOptions()
       .setArenaBlockSize(4 * 1024 * 1024)               // 4MB
@@ -43,13 +45,10 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String]) {
   }
 
   def backup(backupDir: Path): Option[BackupInfo] = {
-    def ensureDirectory(path: Path): Path = {
-      if (!Files.exists(path) || !Files.isDirectory(path))
-        Files.createDirectories(path)
-      path
-    }
 
-    ensureDirectory(backupDir)
+    if (!Files.exists(backupDir) || !Files.isDirectory(backupDir))
+      Files.createDirectories(backupDir)
+
     RocksDB.loadLibrary
     val backupEngine = BackupEngine.open(Env.getDefault, new BackupableDBOptions(backupDir.toString))
     backupEngine.createNewBackup(db)
@@ -58,9 +57,13 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String]) {
   }
 
   def restoreFromBackup(backupDir: Path) = {
+    logger.warn("Restoring from backup. DB temporarily unavailable")
+    db.close()
     RocksDB.loadLibrary
     val backupEngine = BackupEngine.open(Env.getDefault, new BackupableDBOptions(backupDir.toString))
     backupEngine.restoreDbFromLatestBackup(dataDir.toString, dataDir.toString, new RestoreOptions(true))
+    logger.warn("Restoring from backup complete. Restarting...")
+    (new Timer).schedule(new TimerTask() { def run = System.exit(0) }, 100)
   }
 
   def close(): Future[Unit] = {
