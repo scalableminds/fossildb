@@ -25,7 +25,18 @@ class StoreManager(dataDir: Path, backupDir: Path, columnFamilies: List[String])
 
   val backupInProgress = new AtomicBoolean(false)
 
-  def backup = rocksDBManager.backup(backupDir)
+  def backup = {
+    if (backupInProgress.compareAndSet(false, true)) {
+      try {
+        rocksDBManager.backup(backupDir)
+      } finally {
+        backupInProgress.set(false)
+      }
+    } else {
+      throw new Exception("Backup already in progress.")
+    }
+  }
+
   def restoreFromBackup = rocksDBManager.restoreFromBackup(backupDir)
 
   def shutdown = rocksDBManager.close

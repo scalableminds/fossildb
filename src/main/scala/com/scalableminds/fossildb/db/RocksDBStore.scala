@@ -45,7 +45,6 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String]) extends LazyLo
   }
 
   def backup(backupDir: Path): Option[BackupInfo] = {
-
     if (!Files.exists(backupDir) || !Files.isDirectory(backupDir))
       Files.createDirectories(backupDir)
 
