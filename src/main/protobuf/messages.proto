@@ -91,6 +91,18 @@ message ListKeysReply {
     repeated string keys = 3;
 }
 
+message ListVersionsRequest {
+    required string collection = 1;
+    required string key = 2;
+    optional uint32 limit = 3;
+    optional uint32 offset = 4;
+}
+
+message ListVersionsReply {
+    required bool success = 1;
+    optional string errorMessage = 2;
+    repeated uint64 versions = 3;
+}
 
 
 message BackupRequest {}

@@ -12,6 +12,7 @@ service Store {
     rpc Delete (DeleteRequest) returns (DeleteReply) {}
     rpc DeleteMultipleVersions (DeleteMultipleVersionsRequest) returns (DeleteMultipleVersionsReply) {}
     rpc ListKeys (ListKeysRequest) returns (ListKeysReply) {}
+    rpc ListVersions (ListVersionsRequest) returns (ListVersionsReply) {}
     rpc Backup (BackupRequest) returns (BackupReply) {}
     rpc RestoreFromBackup (RestoreFromBackupRequest) returns (RestoreFromBackupReply) {}
 }

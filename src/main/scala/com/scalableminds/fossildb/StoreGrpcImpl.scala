@@ -65,6 +65,12 @@ class StoreGrpcImpl(storeManager: StoreManager) extends StoreGrpc.Store with Laz
     ListKeysReply(true, None, keys)
   } {errorMsg => ListKeysReply(false, errorMsg)}
 
+  override def listVersions(req: ListVersionsRequest) = withExceptionHandler(req) {
+    val store = storeManager.getStore(req.collection)
+    val versions = store.listVersions(req.key, req.limit, req.offset)
+    ListVersionsReply(true, None, versions)
+  } {errorMsg => ListVersionsReply(false, errorMsg)}
+
   override def backup(req: BackupRequest) = withExceptionHandler(req) {
     val backupInfoOpt = storeManager.backup
     backupInfoOpt match {

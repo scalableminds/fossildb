@@ -77,6 +77,7 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
   }
 
   private def scanVersions(key: String, version: Option[Long] = None): Iterator[VersionedKeyValuePair[Array[Byte]]] = {
+    requireValidKey(key)
     val prefix = s"$key@"
     underlying.scan(version.map(VersionedKey(key, _).toString).getOrElse(prefix), Some(prefix)).flatMap { pair =>
       VersionedKey(pair.key).map(VersionedKeyValuePair(_, pair.value))
@@ -84,6 +85,8 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
   }
 
   def getMultipleKeys(key: String, prefix: Option[String] = None, version: Option[Long] = None): (Seq[String], Seq[Array[Byte]]) = {
+    requireValidKey(key)
+    prefix.map{p => requireValidKey(p)}
     val iterator: Iterator[VersionedKeyValuePair[Array[Byte]]] = scanKeys(key, prefix, version)
     val asSequence = iterator.toSeq
     val keys = asSequence.map(_.key)
@@ -108,15 +111,27 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
     deleteIter(scanVersions(key, newestVersion))
   }
 
-  def put(key: String, version: Long, value: Array[Byte]): Unit =
+  def put(key: String, version: Long, value: Array[Byte]): Unit = {
+    requireValidKey(key)
     underlying.put(VersionedKey(key, version).toString, value)
+  }
 
-  def delete(key: String, version: Long) =
+  def delete(key: String, version: Long) = {
+    requireValidKey(key)
     underlying.delete(VersionedKey(key, version).toString)
+  }
 
   def listKeys(limit: Option[Int], offset: Option[Int]) = {
     val iterator: Iterator[VersionedKeyValuePair[Array[Byte]]] = scanKeys("", None, None)
     iterator.map(_.key).drop(offset.getOrElse(0)).take(limit.getOrElse(100000)).toSeq
   }
 
+  def listVersions(key: String, limit: Option[Int], offset: Option[Int]) = {
+    val iterator = scanVersions(key)
+    iterator.map(_.version).drop(offset.getOrElse(0)).take(limit.getOrElse(100000)).toSeq
+  }
+
+  private def requireValidKey(key: String) = {
+    require(!(key contains "@"), "keys cannot contain the char @")
+  }
 }
