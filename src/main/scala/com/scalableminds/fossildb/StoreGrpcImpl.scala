@@ -98,7 +98,7 @@ class StoreGrpcImpl(storeManager: StoreManager) extends StoreGrpc.Store with Laz
   }
 
   private def log[R <: GeneratedMessage](e: Exception, request: R) = {
-    logger.error(getStackTraceAsString(e) + "\nrequest that caused this error: " + requestToString(request) + "\n")
+    logger.warn(getStackTraceAsString(e) + "\nrequest that caused this error: " + requestToString(request) + "\n")
   }
 
   private def requestToString[R <: GeneratedMessage](request: R) =
