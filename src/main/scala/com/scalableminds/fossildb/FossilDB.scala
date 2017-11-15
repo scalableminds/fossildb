@@ -3,27 +3,48 @@ package com.scalableminds.fossildb
 import java.nio.file.Paths
 
 import com.scalableminds.fossildb.db.StoreManager
-import com.typesafe.config.ConfigFactory
+import com.typesafe.scalalogging.LazyLogging
 
-import scala.collection.JavaConverters._
 import scala.concurrent.ExecutionContext
 
-object FossilDB {
+case class Config(port: Int = 8080, dataDir: String = "data", backupDir: String = "backup", columnFamilies: List[String] = List())
+
+object FossilDB extends LazyLogging {
   def main(args: Array[String]) = {
 
-    val conf = ConfigFactory.load
+    parseArguments(args) match {
+      case Some(config) => {
+        logger.info("Starting FossilDB with config: " + config)
 
-    val dataDir = Paths.get(conf.getString("fossildb.dataDir"))
-    val backupDir = Paths.get(conf.getString("fossildb.backupDir"))
-    val columnFamilies = conf.getStringList("fossildb.columnFamilies").asScala.toList
-    val port = conf.getInt("fossildb.port")
+        val storeManager = new StoreManager(Paths.get(config.dataDir), Paths.get(config.backupDir), config.columnFamilies)
 
-    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies)
+        val server = new StoreServer(storeManager, config.port, ExecutionContext.global)
 
-    val server = new StoreServer(storeManager, port, ExecutionContext.global)
+        server.start()
+        server.blockUntilShutdown()
 
-    server.start()
-    server.blockUntilShutdown()
+      }
+      case None => ()
+    }
 
+  }
+
+  def parseArguments(args: Array[String]) = {
+    val parser = new scopt.OptionParser[Config]("fossildb") {
+
+      opt[Int]('p', "port").valueName("<num>").action( (x, c) =>
+        c.copy(port = x) ).text("port to listen on")
+
+      opt[String]('d', "dataDir").valueName("<path>").action( (x, c) =>
+        c.copy(dataDir = x) ).text("database directory")
+
+      opt[String]('b', "backupDir").valueName("<path>").action( (x, c) =>
+        c.copy(backupDir = x) ).text("backup directory")
+
+      opt[Seq[String]]('c', "columnFamilies").required.valueName("<cf1>,<cf2>...").action( (x, c) =>
+        c.copy(columnFamilies = x.toList) ).text("column families of the database (created if there is no db yet)")
+    }
+
+    parser.parse(args, Config())
   }
 }

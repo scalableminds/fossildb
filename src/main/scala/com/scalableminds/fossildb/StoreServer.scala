@@ -18,9 +18,9 @@ class StoreServer(storeManager: StoreManager, port: Int, executionContext: Execu
     server = ServerBuilder.forPort(port).addService(StoreGrpc.bindService(new StoreGrpcImpl(storeManager), executionContext)).build.start
     logger.info("Server started, listening on " + port)
     sys.addShutdownHook {
-      logger.info("*** shutting down gRPC server since JVM is shutting down")
+      logger.info("Shutting down gRPC server since JVM is shutting down")
       self.stop()
-      logger.info("*** server shut down")
+      logger.info("Server shut down")
     }
   }
 
