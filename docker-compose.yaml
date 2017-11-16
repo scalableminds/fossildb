@@ -9,6 +9,9 @@ services:
       - default
     ports:
       - "8090:8090"
+    volumes:
+      - "./data:/fossildb/data"
+      - "./backup:/fossildb/backup"
 
   sbt:
     image: scalableminds/sbt:${SBT_VERSION_TAG:-sbt-0.13.15_mongo-3.2.17_node-8.x_jdk-8}
