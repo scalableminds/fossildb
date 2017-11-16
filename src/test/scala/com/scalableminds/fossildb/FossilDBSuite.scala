@@ -25,12 +25,15 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach {
 
   val collectionA = "collectionA"
   val collectionB = "collectionB"
+  val collectionC = "collectionC"
 
   val testData1 = ByteString.copyFromUtf8("testData1")
   val testData2 = ByteString.copyFromUtf8("testData2")
+  val testData3 = ByteString.copyFromUtf8("testData3")
 
   val aKey = "aKey"
   val anotherKey = "anotherKey"
+  val aThirdKey = "aThirdKey"
 
   private def deleteRecursively(file: File): Unit = {
     if (file.isDirectory)
@@ -81,21 +84,102 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach {
     assert(testData2 == reply.value)
   }
 
-  it should "return success == false if called on empty db" in {
+  it should "fail if called on empty db" in {
     val reply = client.get(GetRequest(collectionA, aKey))
     assert(!reply.success)
   }
 
-  it should "return success == false after Put with other key" in {
+  it should "fail after Put with other key" in {
     client.put(PutRequest(collectionA, anotherKey, 0, testData1))
     val reply = client.get(GetRequest(collectionA, aKey))
     assert(!reply.success)
   }
 
-  it should "return success == false after Put with only newer version" in {
+  it should "fail after Put with only newer version" in {
     client.put(PutRequest(collectionA, aKey, 5, testData1))
     val reply = client.get(GetRequest(collectionA, aKey, Some(3)))
     assert(!reply.success)
+  }
+
+  "Delete" should "delete a value at specific version" in {
+    client.put(PutRequest(collectionA, aKey, 0, testData1))
+    client.put(PutRequest(collectionA, aKey, 1, testData2))
+    client.delete(DeleteRequest(collectionA, aKey, 1))
+    val reply = client.get(GetRequest(collectionA, aKey, Some(1)))
+    assert(testData1 == reply.value)
+  }
+
+  "ListKeys" should "list all keys of a collection" in {
+    client.put(PutRequest(collectionA, aKey, 0, testData1))
+    client.put(PutRequest(collectionA, aKey, 1, testData2))
+    client.put(PutRequest(collectionA, anotherKey, 4, testData2))
+    client.put(PutRequest(collectionB, aThirdKey, 1, testData1))
+    val reply = client.listKeys(ListKeysRequest(collectionA))
+    assert(reply.keys.contains(aKey))
+    assert(reply.keys.contains(anotherKey))
+    assert(reply.keys.length == 2)
+  }
+
+  "GetMultipleVersions" should "return all versions in decending order if called without limits" in {
+    client.put(PutRequest(collectionA, aKey, 0, testData1))
+    client.put(PutRequest(collectionA, aKey, 1, testData2))
+    client.put(PutRequest(collectionA, aKey, 2, testData3))
+    client.put(PutRequest(collectionA, anotherKey, 0, testData1))
+    val reply = client.getMultipleVersions(GetMultipleVersionsRequest(collectionA, aKey))
+    assert(reply.versions(0) == 2)
+    assert(reply.versions(1) == 1)
+    assert(reply.versions(2) == 0)
+    assert(reply.values(0) == testData3)
+    assert(reply.values(1) == testData2)
+    assert(reply.values(2) == testData1)
+    assert(reply.versions.length == 3)
+    assert(reply.values.length == 3)
+  }
+
+  it should "return versions specified by bounds (inclusive)" in {
+    client.put(PutRequest(collectionA, aKey, 0, testData1))
+    client.put(PutRequest(collectionA, aKey, 1, testData2))
+    client.put(PutRequest(collectionA, aKey, 3, testData3))
+    client.put(PutRequest(collectionA, aKey, 4, testData1))
+    client.put(PutRequest(collectionA, aKey, 5, testData1))
+    client.put(PutRequest(collectionA, anotherKey, 0, testData1))
+
+    val reply = client.getMultipleVersions(GetMultipleVersionsRequest(collectionA, aKey, Some(4), Some(2)))
+    assert(reply.versions(0) == 4)
+    assert(reply.versions(1) == 3)
+    assert(reply.values(0) == testData1)
+    assert(reply.values(1) == testData3)
+    assert(reply.versions.length == 2)
+    assert(reply.values.length == 2)
+  }
+
+  "GetMultipleKeys" should "return keys starting with initial one (no prefix)" in {
+    client.put(PutRequest(collectionA, aKey, 0, testData1))
+    client.put(PutRequest(collectionA, anotherKey, 0, testData2))
+    client.put(PutRequest(collectionA, aThirdKey, 0, testData3))
+    val reply = client.getMultipleKeys(GetMultipleKeysRequest(collectionA, aThirdKey))
+    assert(reply.keys.length == 2)
+    assert(reply.keys.contains(anotherKey))
+    assert(reply.keys.contains(aThirdKey))
+    assert(reply.values.length == 2)
+    assert(reply.values.contains(testData2))
+    assert(reply.values.contains(testData3))
+  }
+
+
+  it should "return keys of matching version" in {
+    client.put(PutRequest(collectionA, aKey, 0, testData1))
+    client.put(PutRequest(collectionA, anotherKey, 0, testData1))
+    client.put(PutRequest(collectionA, aThirdKey, 0, testData1))
+    client.put(PutRequest(collectionA, aKey, 1, testData2))
+    client.put(PutRequest(collectionA, anotherKey, 1, testData2))
+    client.put(PutRequest(collectionA, aThirdKey, 1, testData2))
+    client.put(PutRequest(collectionA, aKey, 2, testData3))
+    client.put(PutRequest(collectionA, anotherKey, 2, testData3))
+    client.put(PutRequest(collectionA, aThirdKey, 2, testData3))
+    val reply = client.getMultipleKeys(GetMultipleKeysRequest(collectionA, aThirdKey, None, Some(2)))
+    assert(reply.keys.length == 3)
+    assert(reply.values.contains(testData1))
   }
 
   "Backup" should "create non-empty backup directory" in {
@@ -112,7 +196,7 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach {
     assert(!reply.success)
   }
 
-  "Restore" should "restore old state after backup" in {
+  it should "restore old state after backup" in {
     client.put(PutRequest(collectionA, aKey, 0, testData1))
     client.backup(BackupRequest())
     client.delete(DeleteRequest(collectionA, aKey, 0))
