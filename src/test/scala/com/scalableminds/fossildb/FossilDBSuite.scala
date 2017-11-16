@@ -15,7 +15,10 @@ import org.scalatest.{BeforeAndAfterEach, FlatSpec}
 import scala.concurrent.ExecutionContext
 
 class FossilDBSuite extends FlatSpec with BeforeAndAfterEach {
-  val testDataDir = "testData"
+  val testTempDir = "testData"
+  val dataDir = Paths.get(testTempDir, "data")
+  val backupDir = Paths.get(testTempDir, "backup")
+
   val port = 21505
   var serverOpt: Option[FossilDBServer] = None
   val client = FossilDBGrpc.blockingStub(ManagedChannelBuilder.forAddress("127.0.0.1", port).usePlaintext(true).build)
@@ -37,11 +40,9 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach {
   }
 
   override def beforeEach = {
-    deleteRecursively(new File(testDataDir))
-    new File(testDataDir).mkdir()
+    deleteRecursively(new File(testTempDir))
+    new File(testTempDir).mkdir()
 
-    val dataDir = Paths.get(testDataDir, "data")
-    val backupDir = Paths.get(testDataDir, "backup")
     val columnFamilies = List(collectionA, collectionB)
 
     val storeManager = new StoreManager(dataDir, backupDir, columnFamilies)
@@ -53,7 +54,7 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach {
 
   override def afterEach = {
     serverOpt.map(_.stop())
-    deleteRecursively(new File(testDataDir))
+    deleteRecursively(new File(testTempDir))
   }
 
 
@@ -64,14 +65,60 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach {
     assert(testData1 == reply.value)
   }
 
+  it should "return matching value after multiple versioned Puts" in {
+    client.put(PutRequest(collectionA, aKey, 0, testData1))
+    client.put(PutRequest(collectionA, aKey, 5, testData1))
+    client.put(PutRequest(collectionA, aKey, 2, testData2))
+    val reply = client.get(GetRequest(collectionA, aKey, Some(2)))
+    assert(testData2 == reply.value)
+  }
+
+  it should "return value of closest older version" in {
+    client.put(PutRequest(collectionA, aKey, 2, testData1))
+    client.put(PutRequest(collectionA, aKey, 5, testData2))
+
+    val reply = client.get(GetRequest(collectionA, aKey, Some(7)))
+    assert(testData2 == reply.value)
+  }
+
   it should "return success == false if called on empty db" in {
     val reply = client.get(GetRequest(collectionA, aKey))
     assert(!reply.success)
   }
 
-  it should "return success == false after put with other key" in {
+  it should "return success == false after Put with other key" in {
     client.put(PutRequest(collectionA, anotherKey, 0, testData1))
     val reply = client.get(GetRequest(collectionA, aKey))
+    assert(!reply.success)
+  }
+
+  it should "return success == false after Put with only newer version" in {
+    client.put(PutRequest(collectionA, aKey, 5, testData1))
+    val reply = client.get(GetRequest(collectionA, aKey, Some(3)))
+    assert(!reply.success)
+  }
+
+  "Backup" should "create non-empty backup directory" in {
+    client.put(PutRequest(collectionA, aKey, 0, testData1))
+    client.backup(BackupRequest())
+    val dir = new File(backupDir.toString)
+    assert(dir.exists)
+    assert(dir.isDirectory)
+    assert(dir.listFiles.length > 0)
+  }
+
+  "Restore" should "fail if there are no backups" in {
+    val reply = client.restoreFromBackup(RestoreFromBackupRequest())
+    assert(!reply.success)
+  }
+
+  "Restore" should "restore old state after backup" in {
+    client.put(PutRequest(collectionA, aKey, 0, testData1))
+    client.backup(BackupRequest())
+    client.delete(DeleteRequest(collectionA, aKey, 0))
+    client.restoreFromBackup(RestoreFromBackupRequest())
+    val reply = client.get(GetRequest(collectionA, aKey, Some(0)))
+    assert(testData1 == reply.value)
   }
 
 }
