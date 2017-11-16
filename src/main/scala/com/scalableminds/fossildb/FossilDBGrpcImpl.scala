@@ -7,14 +7,13 @@ import java.io.{PrintWriter, StringWriter}
 
 import com.google.protobuf.ByteString
 import com.scalableminds.fossildb.db.StoreManager
-import com.scalableminds.fossildb.proto.messages._
-import com.scalableminds.fossildb.proto.rpcs.StoreGrpc
+import com.scalableminds.fossildb.proto.fossildbapi._
 import com.trueaccord.scalapb.GeneratedMessage
 import com.typesafe.scalalogging.LazyLogging
 
 import scala.concurrent.Future
 
-class StoreGrpcImpl(storeManager: StoreManager) extends StoreGrpc.Store with LazyLogging {
+class FossilDBGrpcImpl(storeManager: StoreManager) extends FossilDBGrpc.FossilDB with LazyLogging {
 
   override def get(req: GetRequest) = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)

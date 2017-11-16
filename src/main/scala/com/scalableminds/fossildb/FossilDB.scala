@@ -18,7 +18,7 @@ object FossilDB extends LazyLogging {
 
         val storeManager = new StoreManager(Paths.get(config.dataDir), Paths.get(config.backupDir), config.columnFamilies)
 
-        val server = new StoreServer(storeManager, config.port, ExecutionContext.global)
+        val server = new FossilDBServer(storeManager, config.port, ExecutionContext.global)
 
         server.start()
         server.blockUntilShutdown()

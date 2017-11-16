@@ -8,8 +8,7 @@ import java.nio.file.Paths
 
 import com.google.protobuf.ByteString
 import com.scalableminds.fossildb.db.StoreManager
-import com.scalableminds.fossildb.proto.messages.{GetRequest, PutRequest}
-import com.scalableminds.fossildb.proto.rpcs.StoreGrpc
+import com.scalableminds.fossildb.proto.fossildbapi._
 import io.grpc.ManagedChannelBuilder
 import org.scalatest.{BeforeAndAfterEach, FlatSpec}
 
@@ -18,8 +17,8 @@ import scala.concurrent.ExecutionContext
 class FossilDBSuite extends FlatSpec with BeforeAndAfterEach {
   val testDataDir = "testData"
   val port = 21505
-  var serverOpt: Option[StoreServer] = None
-  val client = StoreGrpc.blockingStub(ManagedChannelBuilder.forAddress("127.0.0.1", port).usePlaintext(true).build)
+  var serverOpt: Option[FossilDBServer] = None
+  val client = FossilDBGrpc.blockingStub(ManagedChannelBuilder.forAddress("127.0.0.1", port).usePlaintext(true).build)
 
   val collectionA = "collectionA"
   val collectionB = "collectionB"
@@ -48,7 +47,7 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach {
     val storeManager = new StoreManager(dataDir, backupDir, columnFamilies)
 
     serverOpt.map(_.stop())
-    serverOpt = Some(new StoreServer(storeManager, port, ExecutionContext.global))
+    serverOpt = Some(new FossilDBServer(storeManager, port, ExecutionContext.global))
     serverOpt.map(_.start())
   }
 
