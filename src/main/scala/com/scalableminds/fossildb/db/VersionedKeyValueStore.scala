@@ -73,7 +73,8 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
     }
 
     val iterator = scanVersions(key, newestVersion)
-    toListIter(iterator, List(), List())
+    val (versions, keys) = toListIter(iterator, List(), List())
+    (versions.reverse, keys.reverse)
   }
 
   private def scanVersions(key: String, version: Option[Long] = None): Iterator[VersionedKeyValuePair[Array[Byte]]] = {

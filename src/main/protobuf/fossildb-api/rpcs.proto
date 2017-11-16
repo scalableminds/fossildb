@@ -2,7 +2,7 @@ syntax = "proto2";
 
 package com.scalableminds.fossildb.proto;
 
-import "messages.proto";
+import "fossildb-api/messages.proto";
 
 service Store {
     rpc Get (GetRequest) returns (GetReply) {}
