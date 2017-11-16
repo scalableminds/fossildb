@@ -166,8 +166,7 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach {
     assert(reply.values.contains(testData3))
   }
 
-
-  it should "return keys of matching version" in {
+  ignore should "return keys of matching version" in {
     client.put(PutRequest(collectionA, aKey, 0, testData1))
     client.put(PutRequest(collectionA, anotherKey, 0, testData1))
     client.put(PutRequest(collectionA, aThirdKey, 0, testData1))

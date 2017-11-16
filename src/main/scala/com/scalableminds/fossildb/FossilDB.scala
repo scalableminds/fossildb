@@ -7,7 +7,9 @@ import com.typesafe.scalalogging.LazyLogging
 
 import scala.concurrent.ExecutionContext
 
-case class Config(port: Int = 8090, dataDir: String = "data", backupDir: String = "backup", columnFamilies: List[String] = List())
+object ConfigDefaults {val port = 8090; val dataDir = "data"; val backupDir = "backup"; val columnFamilies = List()}
+case class Config(port: Int = ConfigDefaults.port, dataDir: String = ConfigDefaults.dataDir,
+                  backupDir: String = ConfigDefaults.backupDir, columnFamilies: List[String] = ConfigDefaults.columnFamilies)
 
 object FossilDB extends LazyLogging {
   def main(args: Array[String]) = {
@@ -33,13 +35,13 @@ object FossilDB extends LazyLogging {
     val parser = new scopt.OptionParser[Config]("fossildb") {
 
       opt[Int]('p', "port").valueName("<num>").action( (x, c) =>
-        c.copy(port = x) ).text("port to listen on")
+        c.copy(port = x) ).text("port to listen on. Default: " + ConfigDefaults.port)
 
       opt[String]('d', "dataDir").valueName("<path>").action( (x, c) =>
-        c.copy(dataDir = x) ).text("database directory")
+        c.copy(dataDir = x) ).text("database directory. Default: " + ConfigDefaults.dataDir)
 
       opt[String]('b', "backupDir").valueName("<path>").action( (x, c) =>
-        c.copy(backupDir = x) ).text("backup directory")
+        c.copy(backupDir = x) ).text("backup directory. Default: " + ConfigDefaults.backupDir)
 
       opt[Seq[String]]('c', "columnFamilies").required.valueName("<cf1>,<cf2>...").action( (x, c) =>
         c.copy(columnFamilies = x.toList) ).text("column families of the database (created if there is no db yet)")
