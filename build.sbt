@@ -1,3 +1,6 @@
+import sbtbuildinfo.BuildInfoKeys.{buildInfoKeys, buildInfoOptions, buildInfoPackage}
+import sbtbuildinfo.{BuildInfoKey, BuildInfoOption}
+
 name := "fossildb"
 
 version := "0.1"
@@ -26,3 +29,29 @@ assemblyMergeStrategy in assembly := {
     val oldStrategy = (assemblyMergeStrategy in assembly).value
     oldStrategy(x)
 }
+
+assemblyJarName in assembly := "fossildb.jar"
+
+
+lazy val buildInfoSettings = Seq(
+  buildInfoKeys := Seq[BuildInfoKey](version,
+    "commitHash" -> new java.lang.Object() {
+      override def toString(): String = {
+        try {
+          val extracted = new java.io.InputStreamReader(java.lang.Runtime.getRuntime().exec("git rev-parse HEAD").getInputStream())
+          (new java.io.BufferedReader(extracted)).readLine()
+        } catch {
+          case t: Throwable => "get git hash failed"
+        }
+      }
+    }.toString()
+  ),
+  buildInfoPackage := "fossildb",
+  buildInfoOptions := Seq(BuildInfoOption.BuildTime, BuildInfoOption.ToJson)
+)
+
+lazy val root = (project in file(".")).
+  enablePlugins(BuildInfoPlugin).
+  settings(
+    buildInfoSettings
+  )
