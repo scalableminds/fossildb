@@ -4,6 +4,7 @@ import java.nio.file.Paths
 
 import com.scalableminds.fossildb.db.StoreManager
 import com.typesafe.scalalogging.LazyLogging
+import fossildb.BuildInfo
 
 import scala.concurrent.ExecutionContext
 
@@ -16,7 +17,9 @@ object FossilDB extends LazyLogging {
 
     parseArguments(args) match {
       case Some(config) => {
-        logger.info("Starting FossilDB with config: " + config)
+        logger.info("Starting FossilDB")
+        logger.info("BuildInfo: (" + BuildInfo + ")")
+        logger.info("Config: " + config)
 
         val storeManager = new StoreManager(Paths.get(config.dataDir), Paths.get(config.backupDir), config.columnFamilies)
 
