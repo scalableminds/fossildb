@@ -23,6 +23,7 @@ class StoreManager(dataDir: Path, backupDir: Path, columnFamilies: List[String])
   }
 
   def getStore(columnFamily: String) = {
+    failDuringRestore
     try {
       stores.get.get(columnFamily).get
     } catch {
@@ -30,9 +31,16 @@ class StoreManager(dataDir: Path, backupDir: Path, columnFamilies: List[String])
     }
   }
 
+
   val backupInProgress = new AtomicBoolean(false)
+  val restoreInProgress = new AtomicBoolean(false)
+
+  def failDuringRestore = if (restoreInProgress.get) throw new Exception("Unavilable during restore-from-backup operation")
+  def failDuringBackup = if (backupInProgress.get) throw new Exception("Unavilable during backup")
+
 
   def backup = {
+    failDuringRestore
     if (backupInProgress.compareAndSet(false, true)) {
       try {
         rocksDBManager.get.backup(backupDir)
@@ -44,9 +52,8 @@ class StoreManager(dataDir: Path, backupDir: Path, columnFamilies: List[String])
     }
   }
 
-  val restoreInProgress = new AtomicBoolean(false)
-
   def restoreFromBackup = {
+    failDuringBackup
     if (restoreInProgress.compareAndSet(false, true)) {
       try {
         rocksDBManager.get.restoreFromBackup(backupDir)
@@ -55,9 +62,11 @@ class StoreManager(dataDir: Path, backupDir: Path, columnFamilies: List[String])
         restoreInProgress.set(false)
       }
     } else {
-      throw new Exception("Restore from backup already in progress")
+      throw new Exception("Restore-from-backup already in progress")
     }
   }
 
-  def close = rocksDBManager.map(_.close)
+  def close = {
+    rocksDBManager.map(_.close)
+  }
 }
