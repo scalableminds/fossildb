@@ -1,0 +1,38 @@
+version: 2
+jobs:
+  build_and_deploy:
+    machine:
+      image: circleci/classic:latest
+    environment:
+      SBT_VERSION_TAG: sbt-0.13.15_mongo-3.2.17_node-8.x_jdk-8
+    steps:
+      - checkout
+      - restore_cache:
+          key: cache-{{ .Branch }}
+      - run:
+          name: build
+          command: docker-compose run sbt assembly
+      - save_cache:
+          key: cache-{{ .Branch }}
+          paths:
+            - "~/.m2"
+            - "~/.ivy2"
+            - "~/.sbt"
+      - run:
+          name: build docker
+          command: docker build -t scalableminds/fossildb:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} .
+      - run:
+          name: deployment
+          command: |
+            set -x
+            docker login -u $DOCKER_USER -p $DOCKER_PASS
+            docker tag scalableminds/fossildb:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} scalableminds/fossildb:${CIRCLE_BRANCH}
+            docker push scalableminds/fossildb:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM}
+            docker push scalableminds/fossildb:${CIRCLE_BRANCH}
+            docker logout
+
+workflows:
+  version: 2
+  default:
+    jobs:
+      - build_and_deploy
