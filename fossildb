@@ -3,6 +3,9 @@ set -Eeuo pipefail
 
 FOSSILDB_HOME=$(dirname $(readlink -f $0))
 
-chown -R fossildb /fossildb/data /fossildb/backup
-
-exec gosu fossildb java -jar $FOSSILDB_HOME/fossildb.jar $@
+if [ "$(id -u)" = '0' ]; then
+  chown -R fossildb $FOSSILDB_HOME/data $FOSSILDB_HOME/backup
+  exec gosu fossildb java -jar $FOSSILDB_HOME/fossildb.jar $@
+else
+  fossildb java -jar $FOSSILDB_HOME/fossildb.jar $@
+fi
