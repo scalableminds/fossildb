@@ -5,7 +5,6 @@ package com.scalableminds.fossildb.db
 
 import java.nio.file.{Files, Path}
 import java.util
-import java.util.{Timer, TimerTask}
 
 import com.typesafe.scalalogging.LazyLogging
 import org.rocksdb._
@@ -19,7 +18,7 @@ case class KeyValuePair[T](key: String, value: T)
 
 class RocksDBManager(dataDir: Path, columnFamilies: List[String]) extends LazyLogging {
 
-  var (db, columnFamilyHandles) = {
+  var (db: RocksDB, columnFamilyHandles) = {
     RocksDB.loadLibrary()
     val columnOptions = new ColumnFamilyOptions()
       .setArenaBlockSize(4 * 1024 * 1024)               // 4MB
@@ -32,6 +31,7 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String]) extends LazyLo
     val options = new DBOptions()
       .setCreateIfMissing(true)
       .setCreateMissingColumnFamilies(true)
+    logger.info("Opening RocksDB at " + dataDir.toAbsolutePath)
     val db = RocksDB.open(
       options,
       dataDir.toAbsolutePath.toString,
@@ -56,16 +56,16 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String]) extends LazyLo
   }
 
   def restoreFromBackup(backupDir: Path) = {
-    logger.warn("Restoring from backup. DB temporarily unavailable")
-    db.close()
+    logger.warn("Restoring from backup. RocksDB temporarily unavailable")
+    close()
     RocksDB.loadLibrary
     val backupEngine = BackupEngine.open(Env.getDefault, new BackupableDBOptions(backupDir.toString))
     backupEngine.restoreDbFromLatestBackup(dataDir.toString, dataDir.toString, new RestoreOptions(true))
-    logger.warn("Restoring from backup complete. Restarting...")
-    (new Timer).schedule(new TimerTask() { def run = System.exit(0) }, 100)
+    logger.warn("Restoring from backup complete. Reopening RocksDB")
   }
 
   def close(): Future[Unit] = {
+    logger.info("Closing RocksDB handle")
     Future.successful(db.close())
   }
 }

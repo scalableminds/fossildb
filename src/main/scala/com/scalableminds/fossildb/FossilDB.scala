@@ -7,7 +7,7 @@ import com.typesafe.scalalogging.LazyLogging
 
 import scala.concurrent.ExecutionContext
 
-case class Config(port: Int = 8080, dataDir: String = "data", backupDir: String = "backup", columnFamilies: List[String] = List())
+case class Config(port: Int = 8090, dataDir: String = "data", backupDir: String = "backup", columnFamilies: List[String] = List())
 
 object FossilDB extends LazyLogging {
   def main(args: Array[String]) = {
