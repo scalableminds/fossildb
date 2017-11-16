@@ -17,8 +17,10 @@ libraryDependencies ++= Seq(
   "com.github.scopt" %% "scopt" % "3.7.0"
 )
 
+managedSourceDirectories in Compile += target.value / "protobuf-generated"
+
 PB.targets in Compile := Seq(
-  scalapb.gen() -> (sourceManaged in Compile).value
+  scalapb.gen() -> (target.value / "protobuf-generated")
 )
 
 mainClass in Compile := Some("com.scalableminds.fossildb.FossilDB")
