@@ -1,5 +1,8 @@
 #!/bin/bash
+set -Eeuo pipefail
 
 FOSSILDB_HOME=$(dirname $(readlink -f $0))
 
-java -jar $FOSSILDB_HOME/fossildb.jar $@
+chown -R fossildb /fossildb/data /fossildb/backup
+
+exec gosu fossildb java -jar $FOSSILDB_HOME/fossildb.jar $@
