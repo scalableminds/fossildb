@@ -1,0 +1,20 @@
+version: '2.1'
+
+services:
+  fossildb:
+    image: scalableminds/fossildb:${DOCKER_TAG:-master}
+    entrypoint: fossildb
+    command:
+      - -c
+      - default
+    ports:
+      - "8090:8090"
+
+  sbt:
+    image: scalableminds/sbt:${SBT_VERSION_TAG:-sbt-0.13.15_mongo-3.2.17_node-8.x_jdk-8}
+    volumes:
+      - ".:/project"
+      - "~/.m2:/root/.m2"
+      - "~/.ivy2:/root/.ivy2"
+      - "~/.sbt:/root/.sbt"
+    entrypoint: sbt

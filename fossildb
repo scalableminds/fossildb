@@ -1,0 +1,5 @@
+#!/bin/bash
+
+FOSSILDB_HOME=$(dirname $(readlink -f $0))
+
+java -jar $FOSSILDB_HOME/fossildb-assembly-0.1.jar $@
