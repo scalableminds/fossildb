@@ -7,6 +7,12 @@ jobs:
       SBT_VERSION_TAG: sbt-0.13.15_mongo-3.2.17_node-8.x_jdk-8
     steps:
       - checkout
+      - run:
+          name: install docker-compose
+          command: |
+            set -x
+            curl -L https://github.com/docker/compose/releases/download/1.17.1/docker-compose-`uname -s`-`uname -m` -o /usr/local/bin/docker-compose
+            chmod +x /usr/local/bin/docker-compose
       - restore_cache:
           key: cache-{{ .Branch }}
       - run:
