@@ -61,6 +61,17 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach {
   }
 
 
+  "Put" should "overwrite old value" in {
+    client.put(PutRequest(collectionA, aKey, 0, testData1))
+    client.put(PutRequest(collectionA, aKey, 0, testData2))
+    val reply = client.get(GetRequest(collectionA, aKey, Some(0)))
+    assert(testData2 == reply.value)
+  }
+
+  it should "fail on non-existent collection" in {
+    val reply = client.put(PutRequest("nonExistentCollection", aKey, 0, testData1))
+    assert(!reply.success)
+  }
 
   "Get" should "return matching value after matching Put" in {
     client.put(PutRequest(collectionA, aKey, 0, testData1))
@@ -199,6 +210,15 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach {
     client.put(PutRequest(collectionA, aKey, 0, testData1))
     client.backup(BackupRequest())
     client.delete(DeleteRequest(collectionA, aKey, 0))
+    client.restoreFromBackup(RestoreFromBackupRequest())
+    val reply = client.get(GetRequest(collectionA, aKey, Some(0)))
+    assert(testData1 == reply.value)
+  }
+
+  it should "restore even after deletion of data dir" in {
+    client.put(PutRequest(collectionA, aKey, 0, testData1))
+    client.backup(BackupRequest())
+    deleteRecursively(new File(dataDir.toString))
     client.restoreFromBackup(RestoreFromBackupRequest())
     val reply = client.get(GetRequest(collectionA, aKey, Some(0)))
     assert(testData1 == reply.value)
