@@ -177,7 +177,7 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach {
     assert(reply.values.contains(testData3))
   }
 
-  ignore should "return keys of matching version" in {
+  it should "return keys of matching version (sorted alphabetically)" in {
     client.put(PutRequest(collectionA, aKey, 0, testData1))
     client.put(PutRequest(collectionA, anotherKey, 0, testData1))
     client.put(PutRequest(collectionA, aThirdKey, 0, testData1))
@@ -187,9 +187,24 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach {
     client.put(PutRequest(collectionA, aKey, 2, testData3))
     client.put(PutRequest(collectionA, anotherKey, 2, testData3))
     client.put(PutRequest(collectionA, aThirdKey, 2, testData3))
-    val reply = client.getMultipleKeys(GetMultipleKeysRequest(collectionA, aThirdKey, None, Some(2)))
+    val reply = client.getMultipleKeys(GetMultipleKeysRequest(collectionA, aKey, None, Some(1)))
     assert(reply.keys.length == 3)
-    assert(reply.values.contains(testData1))
+    assert(reply.values.contains(testData2))
+  }
+
+  it should "return keys of matching version, matching prefix (sorted alphabetically)" in {
+    client.put(PutRequest(collectionA, aKey, 0, testData1))
+    client.put(PutRequest(collectionA, anotherKey, 0, testData1))
+    client.put(PutRequest(collectionA, aThirdKey, 0, testData1))
+    client.put(PutRequest(collectionA, aKey, 1, testData2))
+    client.put(PutRequest(collectionA, anotherKey, 1, testData2))
+    client.put(PutRequest(collectionA, aThirdKey, 1, testData2))
+    client.put(PutRequest(collectionA, aKey, 2, testData3))
+    client.put(PutRequest(collectionA, anotherKey, 2, testData3))
+    client.put(PutRequest(collectionA, aThirdKey, 2, testData3))
+    val reply = client.getMultipleKeys(GetMultipleKeysRequest(collectionA, aKey, Some("aK"), Some(1)))
+    assert(reply.keys.length == 1)
+    assert(reply.values.contains(testData2))
   }
 
   "Backup" should "create non-empty backup directory" in {

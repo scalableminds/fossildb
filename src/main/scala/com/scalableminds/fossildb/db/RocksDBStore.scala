@@ -18,7 +18,7 @@ case class KeyValuePair[T](key: String, value: T)
 
 class RocksDBManager(dataDir: Path, columnFamilies: List[String]) extends LazyLogging {
 
-  var (db: RocksDB, columnFamilyHandles) = {
+  val (db: RocksDB, columnFamilyHandles) = {
     RocksDB.loadLibrary()
     val columnOptions = new ColumnFamilyOptions()
       .setArenaBlockSize(4 * 1024 * 1024)               // 4MB
