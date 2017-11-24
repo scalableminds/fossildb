@@ -7,6 +7,9 @@ jobs:
       SBT_VERSION_TAG: sbt-0.13.15_mongo-3.2.17_node-8.x_jdk-8
     steps:
       - checkout
+      - run:
+          name: Prepare dependency folders
+          command: mkdir -p ~/.m2 ~/.ivy2 ~/.sbt
       - restore_cache:
           key: cache-{{ .Branch }}
       - run:
