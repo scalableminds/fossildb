@@ -2,7 +2,7 @@ FROM python:3.6-alpine
 
 COPY . /fossildb
 
-RUN pip3 install -r /fossildb/requirements.txt
-RUN /fossildb/update_api.sh
+RUN pip3 install -r /fossildb/backup-client-python/requirements.txt
+RUN /fossildb/backup-client-python/update_api.sh
 
-ENTRYPOINT /fossildb/backup-client.py
+ENTRYPOINT /fossildb/backup-client-python/backup-client.py
