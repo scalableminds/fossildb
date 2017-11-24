@@ -30,9 +30,22 @@ jobs:
             docker push scalableminds/fossildb:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM}
             docker push scalableminds/fossildb:${CIRCLE_BRANCH}
             docker logout
+  build_and_push_backup_client:
+    machine:
+      image: TODO
+    steps:
+      - checkout
+      - run:
+        command: |
+          docker build \
+          -f backup-client-python/Dockerfile \
+          -t scalableminds/fossildb-backup:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} \
+          -t scalableminds/fossildb-backup:${CIRCLE_BRANCH} \
+          .
 
 workflows:
   version: 2
   default:
     jobs:
       - build_and_deploy
+      - build_and_push_backup_client
