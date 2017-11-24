@@ -5,13 +5,18 @@ jobs:
       image: circleci/classic:latest
     environment:
       SBT_VERSION_TAG: sbt-0.13.15_mongo-3.2.17_node-8.x_jdk-8
+      USER_UID: 1001
+      USER_GID: 1001
     steps:
       - checkout
+      - run:
+          name: Prepare dependency folders
+          command: mkdir -p ~/.m2 ~/.ivy2 ~/.sbt
       - restore_cache:
           key: cache-{{ .Branch }}
       - run:
           name: build
-          command: docker-compose run sbt assembly
+          command: docker-compose run sbt sbt assembly
       - save_cache:
           key: cache-{{ .Branch }}
           paths:
