@@ -36,12 +36,13 @@ jobs:
     steps:
       - checkout
       - run:
-        command: |
-          docker build \
-          -f backup-client-python/Dockerfile \
-          -t scalableminds/fossildb-backup:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} \
-          -t scalableminds/fossildb-backup:${CIRCLE_BRANCH} \
-          .
+          name: build docker
+          command: |
+            docker build \
+            -f backup-client-python/Dockerfile \
+            -t scalableminds/fossildb-backup:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} \
+            -t scalableminds/fossildb-backup:${CIRCLE_BRANCH} \
+            .
 
 workflows:
   version: 2
