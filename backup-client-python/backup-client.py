@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import grpc
 import sys
 import argparse
@@ -8,7 +10,6 @@ import fossildbapi_pb2_grpc
 def main():
 
 	commands = {'backup': backup, 'restore': restore}
-
 
 	parser = argparse.ArgumentParser()
 	parser.add_argument('address', metavar='address', default='localhost', nargs='?',
