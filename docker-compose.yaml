@@ -15,9 +15,9 @@ services:
 
   sbt:
     image: scalableminds/sbt:${SBT_VERSION_TAG:-sbt-0.13.15_mongo-3.2.17_node-8.x_jdk-8}
+    working_dir: /fossildb
     volumes:
-      - ".:/project"
-      - "~/.m2:/root/.m2"
-      - "~/.ivy2:/root/.ivy2"
-      - "~/.sbt:/root/.sbt"
-    entrypoint: sbt
+      - ".:/fossildb"
+      - "~/.m2:/home/sbt-user/.m2"
+      - "~/.ivy2:/home/sbt-user/.ivy2"
+      - "~/.sbt:/home/sbt-user/.sbt"
