@@ -11,7 +11,7 @@ jobs:
           key: cache-{{ .Branch }}
       - run:
           name: build
-          command: docker-compose run sbt assembly
+          command: docker-compose run sbt sbt assembly
       - save_cache:
           key: cache-{{ .Branch }}
           paths:
