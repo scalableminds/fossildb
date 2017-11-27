@@ -1,6 +1,6 @@
 version: 2
 jobs:
-  build_and_deploy:
+  build_and_push_db:
     machine:
       image: circleci/classic:latest
     environment:
@@ -25,17 +25,20 @@ jobs:
             - "~/.sbt"
       - run:
           name: build docker
-          command: docker build -t scalableminds/fossildb:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} .
+          command: |
+            docker build \
+            -t scalableminds/fossildb:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} \
+            -t scalableminds/fossildb:${CIRCLE_BRANCH} \
+            .
       - run:
-          name: deployment
+          name: push to dockerhub
           command: |
             set -x
             docker login -u $DOCKER_USER -p $DOCKER_PASS
-            docker tag scalableminds/fossildb:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} scalableminds/fossildb:${CIRCLE_BRANCH}
             docker push scalableminds/fossildb:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM}
             docker push scalableminds/fossildb:${CIRCLE_BRANCH}
             docker logout
-  build_and_push_backup_client:
+  build_and_push_client:
     machine:
       image: circleci/classic:latest
     steps:
@@ -45,13 +48,21 @@ jobs:
           command: |
             docker build \
             -f backup-client-python/Dockerfile \
-            -t scalableminds/fossildb-backup:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} \
-            -t scalableminds/fossildb-backup:${CIRCLE_BRANCH} \
+            -t scalableminds/fossildb-client:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} \
+            -t scalableminds/fossildb-client:${CIRCLE_BRANCH} \
             .
+      - run:
+          name: push to dockerhub
+          command: |
+            set -x
+            docker login -u $DOCKER_USER -p $DOCKER_PASS
+            docker push scalableminds/fossildb-client:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM}
+            docker push scalableminds/fossildb-client:${CIRCLE_BRANCH}
+            docker logout
 
 workflows:
   version: 2
   default:
     jobs:
-      - build_and_deploy
-      - build_and_push_backup_client
+      - build_and_push_db
+      - build_and_push_client
