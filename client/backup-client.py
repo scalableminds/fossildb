@@ -17,7 +17,7 @@ def main():
         'address', metavar='address', default='localhost', nargs='?',
         help='address of the fossildb server (default: %(default)s)')
     parser.add_argument(
-        'port', metavar='port', type=int, default=8090,  nargs='?',
+        'port', metavar='port', type=int, default=7155,  nargs='?',
         help='port of the fossildb server (default: %(default)s)')
     parser.add_argument(
         'command', metavar='command',

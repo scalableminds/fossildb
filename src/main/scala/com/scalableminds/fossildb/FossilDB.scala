@@ -8,7 +8,7 @@ import fossildb.BuildInfo
 
 import scala.concurrent.ExecutionContext
 
-object ConfigDefaults {val port = 8090; val dataDir = "data"; val backupDir = "backup"; val columnFamilies = List()}
+object ConfigDefaults {val port = 7155; val dataDir = "data"; val backupDir = "backup"; val columnFamilies = List()}
 case class Config(port: Int = ConfigDefaults.port, dataDir: String = ConfigDefaults.dataDir,
                   backupDir: String = ConfigDefaults.backupDir, columnFamilies: List[String] = ConfigDefaults.columnFamilies)
 
