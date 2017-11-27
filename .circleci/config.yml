@@ -15,7 +15,7 @@ jobs:
       - restore_cache:
           key: cache-{{ .Branch }}
       - run:
-          name: build
+          name: Build server
           command: docker-compose run sbt sbt assembly
       - save_cache:
           key: cache-{{ .Branch }}
@@ -24,14 +24,14 @@ jobs:
             - "~/.ivy2"
             - "~/.sbt"
       - run:
-          name: build docker
+          name: Build server docker image
           command: |
             docker build \
             -t scalableminds/fossildb:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} \
             -t scalableminds/fossildb:${CIRCLE_BRANCH} \
             .
       - run:
-          name: push to dockerhub
+          name: Push to DockerHub
           command: |
             set -x
             docker login -u $DOCKER_USER -p $DOCKER_PASS
@@ -44,7 +44,7 @@ jobs:
     steps:
       - checkout
       - run:
-          name: build docker
+          name: Build client docker image
           command: |
             docker build \
             -f client/Dockerfile \
@@ -52,7 +52,7 @@ jobs:
             -t scalableminds/fossildb-client:${CIRCLE_BRANCH} \
             .
       - run:
-          name: push to dockerhub
+          name: Push to DockerHub
           command: |
             set -x
             docker login -u $DOCKER_USER -p $DOCKER_PASS
