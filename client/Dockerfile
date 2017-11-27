@@ -6,6 +6,6 @@ COPY client /fossildb/client
 WORKDIR /fossildb/client
 
 RUN pip3 install -r requirements.txt
-RUN update_api.sh
+RUN ./update_api.sh
 
-ENTRYPOINT backup-client.py
+ENTRYPOINT /fossildb/client/backup-client.py
