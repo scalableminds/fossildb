@@ -1,0 +1,5 @@
+__pycache__
+*.pyc
+
+fossildbapi_pb2_grpc.py
+fossildbapi_pb2.py
