@@ -61,14 +61,16 @@ class KeyOnlyIterator[T](underlying: RocksDBStore, startAfterKey: String) extend
   private var currentKey: String = startAfterKey
 
   override def hasNext: Boolean = {
-    val it = underlying.scan(VersionedKey(startAfterKey, 0).toString, None).drop(1)
+    val it = underlying.scanKeysOnly(VersionedKey(currentKey, 0).toString, None)
+    if (it.hasNext) it.next
     it.hasNext
   }
 
   override def next(): String = {
-    val it = underlying.scan(VersionedKey(startAfterKey, 0).toString, None).drop(1)
-    val nextKey = it.next
-    currentKey = nextKey.key
+    val it = underlying.scanKeysOnly(VersionedKey(currentKey, 0).toString, None)
+    it.next
+    val nextKey = VersionedKey(it.next).get.key
+    currentKey = nextKey
     currentKey
   }
 

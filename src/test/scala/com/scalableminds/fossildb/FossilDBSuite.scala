@@ -131,6 +131,19 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach {
     assert(reply.keys.length == 2)
   }
 
+  it should "support pagination with startAfterKey" in {
+    client.put(PutRequest(collectionA, aKey, 0, testData1))
+    client.put(PutRequest(collectionA, aKey, 1, testData2))
+    client.put(PutRequest(collectionA, anotherKey, 4, testData2))
+    client.put(PutRequest(collectionB, aThirdKey, 1, testData1))
+    val reply = client.listKeys(ListKeysRequest(collectionA, Some(1)))
+    assert(reply.keys.length == 1)
+    assert(reply.keys.contains(aKey))
+    val reply2 = client.listKeys(ListKeysRequest(collectionA, Some(1), Some(reply.keys.last)))
+    assert(reply2.keys.contains(anotherKey))
+    assert(reply2.keys.length == 1)
+  }
+
   "GetMultipleVersions" should "return all versions in decending order if called without limits" in {
     client.put(PutRequest(collectionA, aKey, 0, testData1))
     client.put(PutRequest(collectionA, aKey, 1, testData2))
