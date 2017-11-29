@@ -56,28 +56,38 @@ class VersionFilterIterator[T, U](it: Iterator[KeyValuePair[T]], version: Option
 
 }
 
-class KeyOnlyIterator[T](underlying: RocksDBStore, startAfterKey: String) extends Iterator[String] {
+class KeyOnlyIterator[T](underlying: RocksDBStore, startAfterKey: Option[String]) extends Iterator[String] {
 
-  private var currentKey: String = startAfterKey
+  private var currentKey: Option[String] = startAfterKey
+
+  private def compositeKeyFor(keyOpt: Option[String]) = keyOpt match {
+    case Some(key) => VersionedKey(key, 0).toString
+    case None => ""
+  }
 
   override def hasNext: Boolean = {
-    val it = underlying.scanKeysOnly(VersionedKey(currentKey, 0).toString, None)
-    if (it.hasNext) it.next
+    val it = underlying.scanKeysOnly(compositeKeyFor(currentKey), None)
+    if (it.hasNext && currentKey.isDefined) it.next
     it.hasNext
   }
 
   override def next(): String = {
-    val it = underlying.scanKeysOnly(VersionedKey(currentKey, 0).toString, None)
-    it.next
+    val it = underlying.scanKeysOnly(compositeKeyFor(currentKey), None)
+    if (currentKey.isDefined) it.next
     val nextKey = VersionedKey(it.next).get.key
-    currentKey = nextKey
-    currentKey
+    currentKey = Some(nextKey)
+    nextKey
   }
 
 }
 
 
 class VersionedKeyValueStore(underlying: RocksDBStore) {
+
+  def printAllRocksKeys = {
+    val it = underlying.scanKeysOnly("", None)
+    while (it.hasNext) println(it.next())
+  }
 
   def get(key: String, version: Option[Long] = None): Option[VersionedKeyValuePair[Array[Byte]]] =
     scanVersions(key, version).toStream.headOption
@@ -120,7 +130,7 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
   private def scanKeys(key: String, prefix: Option[String] = None, version: Option[Long] = None): Iterator[VersionedKeyValuePair[Array[Byte]]] =
     new VersionFilterIterator(underlying.scan(key, prefix), version)
 
-  private def listKeysAfter(key: String): Iterator[String] = {
+  private def listKeysAfter(key: Option[String]): Iterator[String] = {
     new KeyOnlyIterator(underlying, key)
   }
 
@@ -149,7 +159,7 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
   }
 
   def listKeys(limitOpt: Option[Int], startAfterKey: Option[String]) = {
-    val iterator = listKeysAfter(startAfterKey.getOrElse(""))
+    val iterator = listKeysAfter(startAfterKey)
     limitOpt match {
       case Some(limit) => iterator.take(limit).toSeq
       case None => iterator.toSeq
