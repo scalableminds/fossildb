@@ -54,6 +54,28 @@ class VersionFilterIterator[T](it: Iterator[KeyValuePair[T]], version: Option[Lo
   }
 }
 
+class NewestVersionIterator[T](it: Iterator[String]) extends Iterator[VersionedKey] {
+  private var currentKey: Option[String] = None
+
+  private var versionedIterator = it.flatMap{ key =>
+    VersionedKey(key)
+  }
+
+  override def hasNext: Boolean = {
+    versionedIterator = versionedIterator.dropWhile { pair =>
+      currentKey.contains(pair.key) || version.exists(pair.version > _)
+    }
+    versionedIterator.hasNext
+  }
+
+  override def next(): VersionedKeyValuePair[T] = {
+    val value = versionedIterator.next()
+    currentKey = Some(value.key)
+    value
+  }
+
+}
+
 
 class VersionedKeyValueStore(underlying: RocksDBStore) {
 
@@ -98,6 +120,15 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
   private def scanKeys(key: String, prefix: Option[String] = None, version: Option[Long] = None): Iterator[VersionedKeyValuePair[Array[Byte]]] =
     new VersionFilterIterator(underlying.scan(key, prefix), version)
 
+  private def listKeysAfter(key: String, versionOpt: Option[Long]): Iterator[VersionedKey] = {
+    val startKey = versionOpt match {
+      case Some(version) => VersionedKey(key, version + 1).toString
+      case None => key
+    }
+    underlying.scanKeysOnly(VersionedKey(startKey), None)
+  }
+
+
   def deleteMultipleVersions(key: String, oldestVersion: Option[Long] = None, newestVersion: Option[Long] = None) = {
     def deleteIter(versionIterator: Iterator[VersionedKeyValuePair[Array[Byte]]]): Unit = {
       if (versionIterator.hasNext) {
@@ -122,8 +153,8 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
     underlying.delete(VersionedKey(key, version).toString)
   }
 
-  def listKeys(limit: Option[Int], offset: Option[Int]) = {
-    val iterator: Iterator[VersionedKeyValuePair[Array[Byte]]] = scanKeys("", None, None)
+  def listKeys(limit: Option[Int], startAfterKey: Option[String], startAfterVersion: Option[Long]) = {
+    val iterator: Iterator[VersionedKeyValuePair[Array[Byte]]] = scanKeys(startAfterKey.getOrElse(""), None, None)
     iterator.map(_.key).drop(offset.getOrElse(0)).take(limit.getOrElse(100000)).toSeq
   }
 

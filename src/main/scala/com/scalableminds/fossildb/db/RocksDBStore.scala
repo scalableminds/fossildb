@@ -70,6 +70,17 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String]) extends LazyLo
   }
 }
 
+class RocksDBKeyIterator(it: RocksIterator, prefix: Option[String]) extends Iterator[String] {
+
+  override def hasNext: Boolean = it.isValid && prefix.forall(it.key().startsWith(_))
+
+  override def next: String = {
+    val key = new String(it.key().map(_.toChar))
+    it.next()
+    key
+  }
+
+}
 
 class RocksDBIterator(it: RocksIterator, prefix: Option[String]) extends Iterator[KeyValuePair[Array[Byte]]] {
 
@@ -80,6 +91,7 @@ class RocksDBIterator(it: RocksIterator, prefix: Option[String]) extends Iterato
     it.next()
     value
   }
+
 }
 
 class RocksDBStore(db: RocksDB, handle: ColumnFamilyHandle) {
@@ -92,6 +104,12 @@ class RocksDBStore(db: RocksDB, handle: ColumnFamilyHandle) {
     val it = db.newIterator(handle)
     it.seek(key.getBytes())
     new RocksDBIterator(it, prefix)
+  }
+
+  def scanKeysOnly(key: String, prefix: Option[String]): Iterator[String] = {
+    val it = db.newIterator(handle)
+    it.seek(key.getBytes())
+    new RocksDBKeyIterator(it, prefix)
   }
 
   def put(key: String, value: Array[Byte]) = {
