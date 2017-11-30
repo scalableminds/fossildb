@@ -46,8 +46,8 @@ object FossilDB extends LazyLogging {
       opt[String]('b', "backupDir").valueName("<path>").action( (x, c) =>
         c.copy(backupDir = x) ).text("backup directory. Default: " + ConfigDefaults.backupDir)
 
-      opt[Seq[String]]('c', "columnFamilies").valueName("<cf1>,<cf2>...").action( (x, c) =>
-        c.copy(columnFamilies = x.toList) ).required.text("column families of the database (created if there is no db yet)")
+      opt[Seq[String]]('c', "columnFamilies").required.valueName("<cf1>,<cf2>...").action( (x, c) =>
+        c.copy(columnFamilies = x.toList) ).text("column families of the database (created if there is no db yet)")
     }
 
     parser.parse(args, Config())

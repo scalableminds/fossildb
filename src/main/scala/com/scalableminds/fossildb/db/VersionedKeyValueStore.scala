@@ -33,7 +33,7 @@ case class VersionedKeyValuePair[T](versionedKey: VersionedKey, value: T) {
 }
 
 
-class VersionFilterIterator[T, U](it: Iterator[KeyValuePair[T]], version: Option[Long]) extends Iterator[VersionedKeyValuePair[T]] {
+class VersionFilterIterator[T](it: Iterator[KeyValuePair[T]], version: Option[Long]) extends Iterator[VersionedKeyValuePair[T]] {
 
   private var currentKey: Option[String] = None
 
@@ -84,11 +84,6 @@ class KeyOnlyIterator[T](underlying: RocksDBStore, startAfterKey: Option[String]
 
 class VersionedKeyValueStore(underlying: RocksDBStore) {
 
-  def printAllRocksKeys = {
-    val it = underlying.scanKeysOnly("", None)
-    while (it.hasNext) println(it.next())
-  }
-
   def get(key: String, version: Option[Long] = None): Option[VersionedKeyValuePair[Array[Byte]]] =
     scanVersions(key, version).toStream.headOption
 
@@ -130,10 +125,6 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
   private def scanKeys(key: String, prefix: Option[String] = None, version: Option[Long] = None): Iterator[VersionedKeyValuePair[Array[Byte]]] =
     new VersionFilterIterator(underlying.scan(key, prefix), version)
 
-  private def listKeysAfter(key: Option[String]): Iterator[String] = {
-    new KeyOnlyIterator(underlying, key)
-  }
-
   def deleteMultipleVersions(key: String, oldestVersion: Option[Long] = None, newestVersion: Option[Long] = None) = {
     def deleteIter(versionIterator: Iterator[VersionedKeyValuePair[Array[Byte]]]): Unit = {
       if (versionIterator.hasNext) {
@@ -158,17 +149,14 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
     underlying.delete(VersionedKey(key, version).toString)
   }
 
-  def listKeys(limitOpt: Option[Int], startAfterKey: Option[String]) = {
-    val iterator = listKeysAfter(startAfterKey)
-    limitOpt match {
-      case Some(limit) => iterator.take(limit).toSeq
-      case None => iterator.toSeq
-    }
+  def listKeys(limit: Option[Int], startAfterKey: Option[String]) = {
+    val iterator = new KeyOnlyIterator(underlying, startAfterKey)
+    iterator.take(limit.getOrElse(Int.MaxValue)).toSeq
   }
 
   def listVersions(key: String, limit: Option[Int], offset: Option[Int]) = {
     val iterator = scanVersions(key)
-    iterator.map(_.version).drop(offset.getOrElse(0)).take(limit.getOrElse(100000)).toSeq
+    iterator.map(_.version).drop(offset.getOrElse(0)).take(limit.getOrElse(Int.MaxValue)).toSeq
   }
 
   private def requireValidKey(key: String) = {
