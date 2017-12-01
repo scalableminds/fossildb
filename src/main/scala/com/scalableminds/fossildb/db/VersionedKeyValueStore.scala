@@ -29,6 +29,7 @@ case class VersionedKeyValuePair[T](versionedKey: VersionedKey, value: T) {
   def key = versionedKey.key
 
   def version = versionedKey.version
+
 }
 
 
@@ -52,6 +53,32 @@ class VersionFilterIterator[T](it: Iterator[KeyValuePair[T]], version: Option[Lo
     currentKey = Some(value.key)
     value
   }
+
+}
+
+class KeyOnlyIterator[T](underlying: RocksDBStore, startAfterKey: Option[String]) extends Iterator[String] {
+
+  private var currentKey: Option[String] = startAfterKey
+
+  private def compositeKeyFor(keyOpt: Option[String]) = keyOpt match {
+    case Some(key) => VersionedKey(key, 0).toString
+    case None => ""
+  }
+
+  override def hasNext: Boolean = {
+    val it = underlying.scanKeysOnly(compositeKeyFor(currentKey), None)
+    if (it.hasNext && currentKey.isDefined) it.next
+    it.hasNext
+  }
+
+  override def next(): String = {
+    val it = underlying.scanKeysOnly(compositeKeyFor(currentKey), None)
+    if (currentKey.isDefined) it.next
+    val nextKey = VersionedKey(it.next).get.key
+    currentKey = Some(nextKey)
+    nextKey
+  }
+
 }
 
 
@@ -122,14 +149,14 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
     underlying.delete(VersionedKey(key, version).toString)
   }
 
-  def listKeys(limit: Option[Int], offset: Option[Int]) = {
-    val iterator: Iterator[VersionedKeyValuePair[Array[Byte]]] = scanKeys("", None, None)
-    iterator.map(_.key).drop(offset.getOrElse(0)).take(limit.getOrElse(100000)).toSeq
+  def listKeys(limit: Option[Int], startAfterKey: Option[String]) = {
+    val iterator = new KeyOnlyIterator(underlying, startAfterKey)
+    iterator.take(limit.getOrElse(Int.MaxValue)).toSeq
   }
 
   def listVersions(key: String, limit: Option[Int], offset: Option[Int]) = {
     val iterator = scanVersions(key)
-    iterator.map(_.version).drop(offset.getOrElse(0)).take(limit.getOrElse(100000)).toSeq
+    iterator.map(_.version).drop(offset.getOrElse(0)).take(limit.getOrElse(Int.MaxValue)).toSeq
   }
 
   private def requireValidKey(key: String) = {

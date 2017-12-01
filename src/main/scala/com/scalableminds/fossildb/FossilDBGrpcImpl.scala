@@ -60,7 +60,7 @@ class FossilDBGrpcImpl(storeManager: StoreManager) extends FossilDBGrpc.FossilDB
 
   override def listKeys(req: ListKeysRequest) = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
-    val keys = store.listKeys(req.limit, req.offset)
+    val keys = store.listKeys(req.limit, req.startAfterKey)
     ListKeysReply(true, None, keys)
   } {errorMsg => ListKeysReply(false, errorMsg)}
 
