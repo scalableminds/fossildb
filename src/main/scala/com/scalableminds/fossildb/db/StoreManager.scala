@@ -74,25 +74,23 @@ class StoreManager(dataDir: Path, backupDir: Path, columnFamilies: List[String])
 
 
   def fixHexVersions = {
-    val collectionsToFix = List("skeletons", "volumeData")
+    val store: RocksDBStore = rocksDBManager.get.getStoreForColumnFamily("skeletons").get
+    val keyIt = store.scanKeysOnly("", None)
+    logger.info("starting to fix hex version keys")
     var count = 0
-    for (collection <- collectionsToFix) {
-      val store: RocksDBStore = rocksDBManager.get.getStoreForColumnFamily(collection).get
-      val keyIt = store.scanKeysOnly("", None)
-      logger.info("starting to fix hex version keys in collection " + collection)
-      while (keyIt.hasNext) {
-        val oldKey = keyIt.next
-        val oldKeyParts = oldKey.split('@')
-        if (oldKeyParts(1).length != 16) {
-          val value = store.get(oldKey)
-          val newKey = oldKeyParts(0) + "@FFFFFFFFFFFFFFFF@" + oldKeyParts(2)
-          store.put(newKey, value)
-          store.delete(oldKey)
-          count += 1
-          if (count % 1000 == 0) logger.info("fixed " + count + " hex version keys")
-          Thread.sleep(2)
-        }
+    while (keyIt.hasNext) {
+      val oldKey = keyIt.next
+      val oldKeyParts = oldKey.split('@')
+      if (oldKeyParts(1).length != 16) {
+        val value = store.get(oldKey)
+        val newKey = oldKeyParts(0) + "@FFFFFFFFFFFFFFFF@" + oldKeyParts(2)
+        store.put(newKey, value)
+        store.delete(oldKey)
+        count += 1
+        if (count % 1000 == 0) logger.info("fixed " + count + " hex version keys")
+        Thread.sleep(1)
       }
     }
+    logger.info("done fixing hex version keys")
   }
 }
