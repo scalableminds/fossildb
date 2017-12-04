@@ -73,9 +73,16 @@ jobs:
             docker pull scalableminds/fossildb-client:${CIRCLE_BRANCH}
             docker logout
       - run:
-          name: Check health endpoint
+          name: Start fossildb
           command: >
             FOSSILDB_TAG=${CIRCLE_BRANCH}
+            docker-compose up -d fossildb
+      - run:
+          name: Wait a second
+          command: sleep 1
+      - run:
+          name: Check health endpoint
+          command: >
             FOSSILDB_CLIENT_TAG=${CIRCLE_BRANCH}
             docker-compose run fossildb-health-check
 
