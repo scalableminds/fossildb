@@ -5,7 +5,7 @@ get_common_build_num: &get_common_build_num
 jobs:
   set_common_build_number:
     docker:
-      - image: alpine:3.6
+      - image: buildpack-deps:jessie
     steps:
       - run:
           name: Write build number
