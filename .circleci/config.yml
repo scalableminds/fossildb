@@ -4,6 +4,8 @@ get_common_build_num: &get_common_build_num
   command: echo "export COMMON_BUILD_NUM=$(cat /common/build)" >> $BASH_ENV
 jobs:
   set_common_build_number:
+    docker:
+      - image: alpine:3.6
     steps:
       - run:
           name: Write build number
