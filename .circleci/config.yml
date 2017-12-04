@@ -1,7 +1,7 @@
 version: 2
 get_common_build_num: &get_common_build_num
   name: Export commond build number
-  command: echo "export COMMON_BUILD_NUM=$(cat /common/build)" >> $BASH_ENV
+  command: echo "export COMMON_BUILD_NUM=$(cat /tmp/workspace/build)" >> $BASH_ENV
 jobs:
   set_common_build_number:
     docker:
@@ -24,7 +24,7 @@ jobs:
     steps:
       - checkout
       - attach_workspace:
-          at: /common
+          at: /tmp/workspace
       - run: *get_common_build_num
       - run:
           name: Prepare dependency folders
@@ -61,7 +61,7 @@ jobs:
     steps:
       - checkout
       - attach_workspace:
-          at: /common
+          at: /tmp/workspace
       - run: *get_common_build_num
       - run:
           name: Build client docker image
@@ -85,7 +85,7 @@ jobs:
     steps:
       - checkout
       - attach_workspace:
-          at: /common
+          at: /tmp/workspace
       - run: *get_common_build_num
       - run:
           name: Pull from DockerHub
