@@ -2,6 +2,12 @@ syntax = "proto2";
 
 package com.scalableminds.fossildb.proto;
 
+message HealthRequest {}
+message HealthReply {
+    required bool success = 1;
+    optional string errorMessage = 2;
+}
+
 message GetRequest {
     required string collection = 1;
     required string key = 2;
@@ -124,6 +130,7 @@ message RestoreFromBackupReply {
 
 
 service FossilDB {
+    rpc Health (HealthRequest) returns (HealthReply) {}
     rpc Get (GetRequest) returns (GetReply) {}
     rpc GetMultipleVersions (GetMultipleVersionsRequest) returns (GetMultipleVersionsReply) {}
     rpc GetMultipleKeys (GetMultipleKeysRequest) returns (GetMultipleKeysReply) {}

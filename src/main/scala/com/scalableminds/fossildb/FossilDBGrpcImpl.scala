@@ -15,6 +15,10 @@ import scala.concurrent.Future
 
 class FossilDBGrpcImpl(storeManager: StoreManager) extends FossilDBGrpc.FossilDB with LazyLogging {
 
+  override def health(req: HealthRequest) = withExceptionHandler(req) {
+    HealthReply(true)
+  } {errorMsg => HealthReply(false, errorMsg)}
+
   override def get(req: GetRequest) = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
     val versionedKeyValuePairOpt = store.get(req.key, req.version)

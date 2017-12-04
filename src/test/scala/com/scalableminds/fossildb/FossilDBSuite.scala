@@ -60,6 +60,10 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach {
     deleteRecursively(new File(testTempDir))
   }
 
+  "Health" should "reply" in {
+    val reply = client.health(HealthRequest())
+    assert(reply.success)
+  }
 
   "Put" should "overwrite old value" in {
     client.put(PutRequest(collectionA, aKey, 0, testData1))
