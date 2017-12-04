@@ -9,9 +9,9 @@ jobs:
     steps:
       - run:
           name: Write build number
-          command: echo "${CIRCLE_BUILD_NUM}" > common/build
+          command: echo "${CIRCLE_BUILD_NUM}" > build
       - persist_to_workspace:
-          root: common
+          root: .
           paths:
             - build
   build_and_push_db:
