@@ -1,5 +1,17 @@
 version: 2
+get_common_build_num: &get_common_build_num
+  name: Export commond build number
+  command: echo "export COMMON_BUILD_NUM=$(cat /common/build)" >> $BASH_ENV
 jobs:
+  set_common_build_number:
+    steps:
+      - run:
+          name: Write build number
+          command: echo "${CIRCLE_BUILD_NUM}" > common/build
+      - persist_to_workspace:
+          root: common
+          paths:
+            - build
   build_and_push_db:
     machine:
       image: circleci/classic:latest
@@ -9,6 +21,9 @@ jobs:
       USER_GID: 1001
     steps:
       - checkout
+      - attach_workspace:
+          at: /common
+      - run: *get_common_build_num
       - run:
           name: Prepare dependency folders
           command: mkdir -p ~/.m2 ~/.ivy2 ~/.sbt
@@ -27,7 +42,7 @@ jobs:
           name: Build server docker image
           command: |
             docker build \
-            -t scalableminds/fossildb:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} \
+            -t scalableminds/fossildb:${CIRCLE_BRANCH}__${COMMON_BUILD_NUM} \
             -t scalableminds/fossildb:${CIRCLE_BRANCH} \
             .
       - run:
@@ -35,7 +50,7 @@ jobs:
           command: |
             set -x
             docker login -u $DOCKER_USER -p $DOCKER_PASS
-            docker push scalableminds/fossildb:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM}
+            docker push scalableminds/fossildb:${CIRCLE_BRANCH}__${COMMON_BUILD_NUM}
             docker push scalableminds/fossildb:${CIRCLE_BRANCH}
             docker logout
   build_and_push_client:
@@ -43,12 +58,15 @@ jobs:
       image: circleci/classic:latest
     steps:
       - checkout
+      - attach_workspace:
+          at: /common
+      - run: *get_common_build_num
       - run:
           name: Build client docker image
           command: |
             docker build \
             -f client/Dockerfile \
-            -t scalableminds/fossildb-client:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} \
+            -t scalableminds/fossildb-client:${CIRCLE_BRANCH}__${COMMON_BUILD_NUM} \
             -t scalableminds/fossildb-client:${CIRCLE_BRANCH} \
             .
       - run:
@@ -56,7 +74,7 @@ jobs:
           command: |
             set -x
             docker login -u $DOCKER_USER -p $DOCKER_PASS
-            docker push scalableminds/fossildb-client:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM}
+            docker push scalableminds/fossildb-client:${CIRCLE_BRANCH}__${COMMON_BUILD_NUM}
             docker push scalableminds/fossildb-client:${CIRCLE_BRANCH}
             docker logout
   smoketest:
@@ -64,18 +82,21 @@ jobs:
       image: circleci/classic:latest
     steps:
       - checkout
+      - attach_workspace:
+          at: /common
+      - run: *get_common_build_num
       - run:
           name: Pull from DockerHub
           command: |
             set -x
             docker login -u $DOCKER_USER -p $DOCKER_PASS
-            docker pull scalableminds/fossildb:${CIRCLE_BRANCH}
-            docker pull scalableminds/fossildb-client:${CIRCLE_BRANCH}
+            docker pull scalableminds/fossildb:${CIRCLE_BRANCH}__${COMMON_BUILD_NUM}
+            docker pull scalableminds/fossildb-client:${CIRCLE_BRANCH}__${COMMON_BUILD_NUM}
             docker logout
       - run:
           name: Start fossildb
           command: >
-            FOSSILDB_TAG=${CIRCLE_BRANCH}
+            FOSSILDB_TAG=${CIRCLE_BRANCH}__${COMMON_BUILD_NUM}
             docker-compose up -d fossildb
       - run:
           name: Wait a second
@@ -83,16 +104,22 @@ jobs:
       - run:
           name: Check health endpoint
           command: >
-            FOSSILDB_CLIENT_TAG=${CIRCLE_BRANCH}
+            FOSSILDB_CLIENT_TAG=${CIRCLE_BRANCH}__${COMMON_BUILD_NUM}
             docker-compose run fossildb-health-check
 
 workflows:
   version: 2
   default:
     jobs:
-      - build_and_push_db
-      - build_and_push_client
+      - set_common_build_number
+      - build_and_push_db:
+          requires:
+            - set_common_build_number
+      - build_and_push_client:
+          requires:
+            - set_common_build_number
       - smoketest:
           requires:
+            - set_common_build_number
             - build_and_push_db
             - build_and_push_client
