@@ -59,6 +59,25 @@ jobs:
             docker push scalableminds/fossildb-client:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM}
             docker push scalableminds/fossildb-client:${CIRCLE_BRANCH}
             docker logout
+  smoketest:
+    machine:
+      image: circleci/classic:latest
+    steps:
+      - checkout
+      - run:
+          name: Pull from DockerHub
+          command: |
+            set -x
+            docker login -u $DOCKER_USER -p $DOCKER_PASS
+            docker pull scalableminds/fossildb:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM}
+            docker pull scalableminds/fossildb-client:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM}
+            docker logout
+      - run:
+          name: Check health endpoint
+          command: >
+            FOSSILDB_TAG=${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM}
+            FOSSILDB_CLIENT_TAG=${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM}
+            docker-compose run fossildb-health-check
 
 workflows:
   version: 2
@@ -66,3 +85,7 @@ workflows:
     jobs:
       - build_and_push_db
       - build_and_push_client
+      - smoketest:
+          requires:
+            - build_and_push_db
+            - build_and_push_client

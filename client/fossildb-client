@@ -11,11 +11,11 @@ import fossildbapi_pb2_grpc as proto_rpc
 def main():
 
     commands = {
-        'backup': lambda: stub:
+        'backup': lambda stub:
             stub.Backup(proto.BackupRequest()),
-        'restore': lambda: stub:
+        'restore': lambda stub:
             stub.RestoreFromBackup(proto.RestoreFromBackupRequest()),
-        'health': lambda: stub:
+        'health': lambda stub:
             stub.Health(proto.HealthRequest())
     }
 
@@ -31,6 +31,11 @@ def main():
         help='command to execute, one of {}'.format(list(commands.keys())))
 
     args = parser.parse_args()
+
+    if args.command not in commands:
+        print("command {} is not available".format(args.command))
+        parser.print_help()
+        exit(20)
 
     full_address = '{}:{}'.format(args.address, args.port)
 
