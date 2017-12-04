@@ -2,16 +2,24 @@ version: '2.1'
 
 services:
   fossildb:
-    image: scalableminds/fossildb:${DOCKER_TAG:-master}
+    image: scalableminds/fossildb:${FOSSILDB_TAG:-master}
     entrypoint: fossildb
     command:
       - -c
       - default
     ports:
-      - "8090:8090"
+      - "7155:7155"
     volumes:
       - "./data:/fossildb/data"
       - "./backup:/fossildb/backup"
+
+  fossildb-health-check:
+    image: scalableminds/fossildb-client:${FOSSILDB_CLIENT_TAG:-master}
+    command:
+      - fossildb
+      - health
+    links:
+      - fossildb
 
   sbt:
     image: scalableminds/sbt:${SBT_VERSION_TAG:-sbt-0.13.15_mongo-3.2.17_node-8.x_jdk-8}
