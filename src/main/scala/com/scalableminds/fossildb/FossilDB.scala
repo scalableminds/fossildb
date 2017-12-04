@@ -26,6 +26,9 @@ object FossilDB extends LazyLogging {
         val server = new FossilDBServer(storeManager, config.port, ExecutionContext.global)
 
         server.start()
+
+        storeManager.fixHexVersions
+
         server.blockUntilShutdown()
 
       }
