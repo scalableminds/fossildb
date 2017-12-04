@@ -69,14 +69,14 @@ jobs:
           command: |
             set -x
             docker login -u $DOCKER_USER -p $DOCKER_PASS
-            docker pull scalableminds/fossildb:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM}
-            docker pull scalableminds/fossildb-client:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM}
+            docker pull scalableminds/fossildb:${CIRCLE_BRANCH}
+            docker pull scalableminds/fossildb-client:${CIRCLE_BRANCH}
             docker logout
       - run:
           name: Check health endpoint
           command: >
-            FOSSILDB_TAG=${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM}
-            FOSSILDB_CLIENT_TAG=${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM}
+            FOSSILDB_TAG=${CIRCLE_BRANCH}
+            FOSSILDB_CLIENT_TAG=${CIRCLE_BRANCH}
             docker-compose run fossildb-health-check
 
 workflows:
