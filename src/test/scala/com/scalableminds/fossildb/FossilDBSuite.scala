@@ -9,7 +9,7 @@ import java.nio.file.Paths
 import com.google.protobuf.ByteString
 import com.scalableminds.fossildb.db.StoreManager
 import com.scalableminds.fossildb.proto.fossildbapi._
-import io.grpc.ManagedChannelBuilder
+import io.grpc.netty.NettyChannelBuilder
 import org.scalatest.{BeforeAndAfterEach, FlatSpec}
 
 import scala.concurrent.ExecutionContext
@@ -21,7 +21,7 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach {
 
   val port = 21505
   var serverOpt: Option[FossilDBServer] = None
-  val client = FossilDBGrpc.blockingStub(ManagedChannelBuilder.forAddress("127.0.0.1", port).usePlaintext(true).build)
+  val client = FossilDBGrpc.blockingStub(NettyChannelBuilder.forAddress("127.0.0.1", port).maxInboundMessageSize(Int.MaxValue).usePlaintext(true).build)
 
   val collectionA = "collectionA"
   val collectionB = "collectionB"
