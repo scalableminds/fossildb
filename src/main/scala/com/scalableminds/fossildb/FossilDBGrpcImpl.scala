@@ -10,26 +10,28 @@ import com.scalableminds.fossildb.db.StoreManager
 import com.scalableminds.fossildb.proto.fossildbapi._
 import com.trueaccord.scalapb.GeneratedMessage
 import com.typesafe.scalalogging.LazyLogging
+import io.grpc.{Status, StatusRuntimeException}
+import io.grpc.stub.StreamObserver
 
 import scala.concurrent.Future
 
 class FossilDBGrpcImpl(storeManager: StoreManager) extends FossilDBGrpc.FossilDB with LazyLogging {
 
-  override def health(req: HealthRequest) = withExceptionHandler(req) {
-    HealthReply(true)
-  } {errorMsg => HealthReply(false, errorMsg)}
+  override def health(req: HealthRequest, obs: StreamObserver[HealthReply]) = withExceptionHandler(req, obs) {
+    HealthReply()
+  }
 
-  override def get(req: GetRequest) = withExceptionHandler(req) {
+  override def get(req: GetRequest, obs: StreamObserver[GetReply]) = withExceptionHandler(req, obs) {
     val store = storeManager.getStore(req.collection)
     val versionedKeyValuePairOpt = store.get(req.key, req.version)
     versionedKeyValuePairOpt match {
-      case Some(pair) => GetReply(true, None, ByteString.copyFrom(pair.value), pair.version)
+      case Some(pair) => GetReply(ByteString.copyFrom(pair.value), pair.version)
       case None => {
-        if (!(req.mayBeEmpty.getOrElse(false))) throw new NoSuchElementException
-        GetReply(false, Some("No such element"), ByteString.EMPTY, 0)
+        if (!(req.mayBeEmpty.getOrElse(false))) throw new StatusRuntimeException(Status.NOT_FOUND)
+        throw new StatusRuntimeException(Status.NOT_FOUND.withDescription("mayBeEmpty"))
       }
     }
-  } {errorMsg => GetReply(false, errorMsg, ByteString.EMPTY, 0)}
+  }
 
   override def put(req: PutRequest) = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
@@ -97,6 +99,25 @@ class FossilDBGrpcImpl(storeManager: StoreManager) extends FossilDBGrpc.FossilDB
       case e: Exception => {
         log(e, request)
         Future.successful(onErrorBlock(Some(e.toString)))
+      }
+    }
+  }
+
+  private def withExceptionHandler [T, R <: GeneratedMessage](request: R, responseObserver: StreamObserver[T])(tryBlock: => T): Unit = {
+    try {
+      logger.debug("received " + requestToString(request))
+      responseObserver.onNext(tryBlock)
+      responseObserver.onCompleted()
+    } catch {
+      case e: StatusRuntimeException => {
+        if ((e.getStatus.getDescription() == null) || (!e.getStatus.getDescription.contains("mayBeEmpty"))) {
+          log(e, request)
+        }
+        responseObserver.onError(e)
+      }
+      case e: Exception => {
+        log(e, request)
+        responseObserver.onError(new StatusRuntimeException(Status.UNKNOWN.withDescription(e.getMessage)))
       }
     }
   }

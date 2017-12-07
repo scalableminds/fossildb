@@ -3,10 +3,7 @@ syntax = "proto2";
 package com.scalableminds.fossildb.proto;
 
 message HealthRequest {}
-message HealthReply {
-    required bool success = 1;
-    optional string errorMessage = 2;
-}
+message HealthReply {}
 
 message GetRequest {
     required string collection = 1;
@@ -16,10 +13,8 @@ message GetRequest {
 }
 
 message GetReply {
-    required bool success = 1;
-    optional string errorMessage = 2;
-    required bytes value = 3;
-    required uint64 actualVersion = 4;
+    required bytes value = 1;
+    required uint64 actualVersion = 2;
 }
 
 message PutRequest {
@@ -130,8 +125,8 @@ message RestoreFromBackupReply {
 
 
 service FossilDB {
-    rpc Health (HealthRequest) returns (HealthReply) {}
-    rpc Get (GetRequest) returns (GetReply) {}
+    rpc Health (HealthRequest) returns (stream HealthReply) {}
+    rpc Get (GetRequest) returns (stream GetReply) {}
     rpc GetMultipleVersions (GetMultipleVersionsRequest) returns (GetMultipleVersionsReply) {}
     rpc GetMultipleKeys (GetMultipleKeysRequest) returns (GetMultipleKeysReply) {}
     rpc Put (PutRequest) returns (PutReply) {}
