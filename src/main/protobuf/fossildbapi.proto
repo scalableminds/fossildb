@@ -24,10 +24,7 @@ message PutRequest {
     required bytes value = 4;
 }
 
-message PutReply {
-    required bool success = 1;
-    optional string errorMessage = 2;
-}
+message PutReply {}
 
 message DeleteRequest {
     required string collection = 1;
@@ -35,10 +32,7 @@ message DeleteRequest {
     required uint64 version = 3;
 }
 
-message DeleteReply {
-    required bool success = 1;
-    optional string errorMessage = 2;
-}
+message DeleteReply {}
 
 message GetMultipleVersionsRequest {
     required string collection = 1;
@@ -48,10 +42,8 @@ message GetMultipleVersionsRequest {
 }
 
 message GetMultipleVersionsReply {
-    required bool success = 1;
-    optional string errorMessage = 2;
-    repeated bytes values = 3;
-    repeated uint64 versions = 4;
+    repeated bytes values = 1;
+    repeated uint64 versions = 2;
 }
 
 message GetMultipleKeysRequest {
@@ -62,10 +54,8 @@ message GetMultipleKeysRequest {
 }
 
 message GetMultipleKeysReply {
-    required bool success = 1;
-    optional string errorMessage = 2;
-    repeated string keys = 3;
-    repeated bytes values = 4;
+    repeated string keys = 1;
+    repeated bytes values = 2;
 }
 
 message DeleteMultipleVersionsRequest {
@@ -75,10 +65,7 @@ message DeleteMultipleVersionsRequest {
     optional uint64 oldestVersion = 3;
 }
 
-message DeleteMultipleVersionsReply {
-    required bool success = 1;
-    optional string errorMessage = 2;
-}
+message DeleteMultipleVersionsReply {}
 
 message ListKeysRequest {
     required string collection = 1;
@@ -87,9 +74,7 @@ message ListKeysRequest {
 }
 
 message ListKeysReply {
-    required bool success = 1;
-    optional string errorMessage = 2;
-    repeated string keys = 3;
+    repeated string keys = 1;
 }
 
 message ListVersionsRequest {
@@ -100,40 +85,33 @@ message ListVersionsRequest {
 }
 
 message ListVersionsReply {
-    required bool success = 1;
-    optional string errorMessage = 2;
-    repeated uint64 versions = 3;
+    repeated uint64 versions = 1;
 }
 
 
 message BackupRequest {}
 
 message BackupReply {
-    required bool success = 1;
-    optional string errorMessage = 2;
-    required uint32 id = 3;
-    required uint64 timestamp = 4;
-    required uint64 size = 5;
+    required uint32 id = 1;
+    required uint64 timestamp = 2;
+    required uint64 size = 3;
 }
 
 message RestoreFromBackupRequest {}
 
-message RestoreFromBackupReply {
-    required bool success = 1;
-    optional string errorMessage = 2;
-}
+message RestoreFromBackupReply {}
 
 
 service FossilDB {
     rpc Health (HealthRequest) returns (stream HealthReply) {}
     rpc Get (GetRequest) returns (stream GetReply) {}
-    rpc GetMultipleVersions (GetMultipleVersionsRequest) returns (GetMultipleVersionsReply) {}
-    rpc GetMultipleKeys (GetMultipleKeysRequest) returns (GetMultipleKeysReply) {}
-    rpc Put (PutRequest) returns (PutReply) {}
-    rpc Delete (DeleteRequest) returns (DeleteReply) {}
-    rpc DeleteMultipleVersions (DeleteMultipleVersionsRequest) returns (DeleteMultipleVersionsReply) {}
-    rpc ListKeys (ListKeysRequest) returns (ListKeysReply) {}
-    rpc ListVersions (ListVersionsRequest) returns (ListVersionsReply) {}
-    rpc Backup (BackupRequest) returns (BackupReply) {}
-    rpc RestoreFromBackup (RestoreFromBackupRequest) returns (RestoreFromBackupReply) {}
+    rpc GetMultipleVersions (GetMultipleVersionsRequest) returns (stream GetMultipleVersionsReply) {}
+    rpc GetMultipleKeys (GetMultipleKeysRequest) returns (stream GetMultipleKeysReply) {}
+    rpc Put (PutRequest) returns (stream PutReply) {}
+    rpc Delete (DeleteRequest) returns (stream DeleteReply) {}
+    rpc DeleteMultipleVersions (DeleteMultipleVersionsRequest) returns (stream DeleteMultipleVersionsReply) {}
+    rpc ListKeys (ListKeysRequest) returns (stream ListKeysReply) {}
+    rpc ListVersions (ListVersionsRequest) returns (stream ListVersionsReply) {}
+    rpc Backup (BackupRequest) returns (stream BackupReply) {}
+    rpc RestoreFromBackup (RestoreFromBackupRequest) returns (stream RestoreFromBackupReply) {}
 }

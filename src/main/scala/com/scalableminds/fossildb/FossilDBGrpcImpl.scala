@@ -10,10 +10,8 @@ import com.scalableminds.fossildb.db.StoreManager
 import com.scalableminds.fossildb.proto.fossildbapi._
 import com.trueaccord.scalapb.GeneratedMessage
 import com.typesafe.scalalogging.LazyLogging
-import io.grpc.{Status, StatusRuntimeException}
 import io.grpc.stub.StreamObserver
-
-import scala.concurrent.Future
+import io.grpc.{Status, StatusRuntimeException}
 
 class FossilDBGrpcImpl(storeManager: StoreManager) extends FossilDBGrpc.FossilDB with LazyLogging {
 
@@ -33,74 +31,61 @@ class FossilDBGrpcImpl(storeManager: StoreManager) extends FossilDBGrpc.FossilDB
     }
   }
 
-  override def put(req: PutRequest) = withExceptionHandler(req) {
+  override def put(req: PutRequest, obs: StreamObserver[PutReply]) = withExceptionHandler(req, obs) {
     val store = storeManager.getStore(req.collection)
     val version = req.version.getOrElse(store.get(req.key, None).map(_.version + 1).getOrElse(0L))
     require(version >= 0, "Version numbers must be non-negative")
     store.put(req.key, version, req.value.toByteArray)
-    PutReply(true)
-  } {errorMsg => PutReply(false, errorMsg)}
+    PutReply()
+  }
 
-  override def delete(req: DeleteRequest) = withExceptionHandler(req) {
+  override def delete(req: DeleteRequest, obs: StreamObserver[DeleteReply]) = withExceptionHandler(req, obs) {
     val store = storeManager.getStore(req.collection)
     store.delete(req.key, req.version)
-    DeleteReply(true)
-  } {errorMsg => DeleteReply(false, errorMsg)}
+    DeleteReply()
+  }
 
-  override def getMultipleVersions(req: GetMultipleVersionsRequest) = withExceptionHandler(req) {
+  override def getMultipleVersions(req: GetMultipleVersionsRequest, obs: StreamObserver[GetMultipleVersionsReply]) = withExceptionHandler(req, obs) {
     val store = storeManager.getStore(req.collection)
     val (values, versions) = store.getMultipleVersions(req.key, req.oldestVersion, req.newestVersion)
-    GetMultipleVersionsReply(true, None, values.map(ByteString.copyFrom(_)), versions)
-  } {errorMsg => GetMultipleVersionsReply(false, errorMsg)}
+    GetMultipleVersionsReply(values.map(ByteString.copyFrom(_)), versions)
+  }
 
-  override def getMultipleKeys(req: GetMultipleKeysRequest) = withExceptionHandler(req) {
+  override def getMultipleKeys(req: GetMultipleKeysRequest, obs: StreamObserver[GetMultipleKeysReply]) = withExceptionHandler(req, obs) {
     val store = storeManager.getStore(req.collection)
     val (keys, values) = store.getMultipleKeys(req.key, req.prefix, req.version)
-    GetMultipleKeysReply(true, None, keys, values.map(ByteString.copyFrom(_)))
-  } {errorMsg => GetMultipleKeysReply(false, errorMsg)}
+    GetMultipleKeysReply(keys, values.map(ByteString.copyFrom(_)))
+  }
 
-  override def deleteMultipleVersions(req: DeleteMultipleVersionsRequest) = withExceptionHandler(req) {
+  override def deleteMultipleVersions(req: DeleteMultipleVersionsRequest, obs: StreamObserver[DeleteMultipleVersionsReply]) = withExceptionHandler(req, obs) {
     val store = storeManager.getStore(req.collection)
     store.deleteMultipleVersions(req.key, req.oldestVersion, req.newestVersion)
-    DeleteMultipleVersionsReply(true)
-  } {errorMsg => DeleteMultipleVersionsReply(false, errorMsg)}
+    DeleteMultipleVersionsReply()
+  }
 
-  override def listKeys(req: ListKeysRequest) = withExceptionHandler(req) {
+  override def listKeys(req: ListKeysRequest, obs: StreamObserver[ListKeysReply]) = withExceptionHandler(req, obs) {
     val store = storeManager.getStore(req.collection)
     val keys = store.listKeys(req.limit, req.startAfterKey)
-    ListKeysReply(true, None, keys)
-  } {errorMsg => ListKeysReply(false, errorMsg)}
+    ListKeysReply(keys)
+  }
 
-  override def listVersions(req: ListVersionsRequest) = withExceptionHandler(req) {
+  override def listVersions(req: ListVersionsRequest, obs: StreamObserver[ListVersionsReply]) = withExceptionHandler(req, obs) {
     val store = storeManager.getStore(req.collection)
     val versions = store.listVersions(req.key, req.limit, req.offset)
-    ListVersionsReply(true, None, versions)
-  } {errorMsg => ListVersionsReply(false, errorMsg)}
+    ListVersionsReply(versions)
+  }
 
-  override def backup(req: BackupRequest) = withExceptionHandler(req) {
+  override def backup(req: BackupRequest, obs: StreamObserver[BackupReply]) = withExceptionHandler(req, obs) {
     val backupInfoOpt = storeManager.backup
     backupInfoOpt match {
-      case Some(backupInfo) => BackupReply(true, None, backupInfo.id, backupInfo.timestamp, backupInfo.size)
+      case Some(backupInfo) => BackupReply(backupInfo.id, backupInfo.timestamp, backupInfo.size)
       case _ => throw new Exception("Backup did not return valid BackupInfo")
     }
-  } {errorMsg => BackupReply(false, errorMsg, 0, 0, 0)}
+  }
 
-  override def restoreFromBackup(req: RestoreFromBackupRequest) = withExceptionHandler(req) {
+  override def restoreFromBackup(req: RestoreFromBackupRequest, obs: StreamObserver[RestoreFromBackupReply]) = withExceptionHandler(req, obs) {
     storeManager.restoreFromBackup
-    RestoreFromBackupReply(true)
-  } {errorMsg => RestoreFromBackupReply(false, errorMsg)}
-
-
-  private def withExceptionHandler [T, R <: GeneratedMessage](request: R)(tryBlock: => T)(onErrorBlock: Option[String] => T): Future[T] = {
-    try {
-      logger.debug("received " + requestToString(request))
-      Future.successful(tryBlock)
-    } catch {
-      case e: Exception => {
-        log(e, request)
-        Future.successful(onErrorBlock(Some(e.toString)))
-      }
-    }
+    RestoreFromBackupReply()
   }
 
   private def withExceptionHandler [T, R <: GeneratedMessage](request: R, responseObserver: StreamObserver[T])(tryBlock: => T): Unit = {
