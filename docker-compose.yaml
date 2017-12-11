@@ -6,7 +6,7 @@ services:
     entrypoint: fossildb
     command:
       - -c
-      - default
+      - skeletons
     ports:
       - "7155:7155"
     volumes:
