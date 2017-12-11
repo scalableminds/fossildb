@@ -1,16 +1,23 @@
 #!/usr/bin/env python3
 
+import argparse
 import grpc
 import sys
-import argparse
 
-import fossildbapi_pb2
-import fossildbapi_pb2_grpc
+import fossildbapi_pb2 as proto
+import fossildbapi_pb2_grpc as proto_rpc
 
 
 def main():
 
-    commands = {'backup': backup, 'restore': restore}
+    commands = {
+        'backup': lambda stub:
+            stub.Backup(proto.BackupRequest()),
+        'restore': lambda stub:
+            stub.RestoreFromBackup(proto.RestoreFromBackupRequest()),
+        'health': lambda stub:
+            stub.Health(proto.HealthRequest())
+    }
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -25,26 +32,23 @@ def main():
 
     args = parser.parse_args()
 
+    if args.command not in commands:
+        print("command {} is not available".format(args.command))
+        parser.print_help()
+        exit(20)
+
     full_address = '{}:{}'.format(args.address, args.port)
 
-    print('Requesting RestoreFromBackup to FossilDB at', full_address)
+    print('Connecting to FossilDB at', full_address)
 
     channel = grpc.insecure_channel(full_address)
-    stub = fossildbapi_pb2_grpc.FossilDBStub(channel)
+    stub = proto_rpc.FossilDBStub(channel)
 
     reply = commands[args.command](stub)
 
     print(reply)
     if not reply.success:
         sys.exit(1)
-
-
-def restore(stub):
-    return stub.RestoreFromBackup(fossildbapi_pb2.RestoreFromBackupRequest())
-
-
-def backup(stub):
-    return stub.Backup(fossildbapi_pb2.BackupRequest())
 
 
 if __name__ == '__main__':
