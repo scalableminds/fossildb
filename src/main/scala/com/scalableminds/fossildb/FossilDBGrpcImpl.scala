@@ -33,8 +33,9 @@ class FossilDBGrpcImpl(storeManager: StoreManager) extends FossilDBGrpc.FossilDB
 
   override def put(req: PutRequest) = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
-    require(req.version >= 0, "Version numbers must be non-negative")
-    store.put(req.key, req.version, req.value.toByteArray)
+    val version = req.version.getOrElse(store.get(req.key, None).map(_.version + 1).getOrElse(0L))
+    require(version >= 0, "Version numbers must be non-negative")
+    store.put(req.key, version, req.value.toByteArray)
     PutReply(true)
   } {errorMsg => PutReply(false, errorMsg)}
 
