@@ -159,9 +159,9 @@ workflows:
             - build_and_push_db
             - build_and_push_client
       - release_on_github:
-          branches:
-            only:
-              - master
+          filters:
+            branches:
+              only: master
           requires:
             - build_and_push_db
             - smoketest
