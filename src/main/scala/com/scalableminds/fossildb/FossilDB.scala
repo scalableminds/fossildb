@@ -15,23 +15,26 @@ case class Config(port: Int = ConfigDefaults.port, dataDir: String = ConfigDefau
 object FossilDB extends LazyLogging {
   def main(args: Array[String]) = {
 
-    parseArguments(args) match {
-      case Some(config) => {
-        logger.info("Starting FossilDB")
-        logger.info("BuildInfo: (" + BuildInfo + ")")
-        logger.info("Config: " + config)
+    if (args.contains("--version"))
+      println(BuildInfo.version)
+    else {
+      parseArguments(args) match {
+        case Some(config) => {
+          logger.info("Starting FossilDB")
+          logger.info("BuildInfo: (" + BuildInfo + ")")
+          logger.info("Config: " + config)
 
-        val storeManager = new StoreManager(Paths.get(config.dataDir), Paths.get(config.backupDir), config.columnFamilies)
+          val storeManager = new StoreManager(Paths.get(config.dataDir), Paths.get(config.backupDir), config.columnFamilies)
 
-        val server = new FossilDBServer(storeManager, config.port, ExecutionContext.global)
+          val server = new FossilDBServer(storeManager, config.port, ExecutionContext.global)
 
-        server.start()
-        server.blockUntilShutdown()
+          server.start()
+          server.blockUntilShutdown()
 
       }
-      case None => ()
+        case None => ()
+      }
     }
-
   }
 
   def parseArguments(args: Array[String]) = {

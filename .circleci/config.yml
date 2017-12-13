@@ -21,6 +21,7 @@ jobs:
       SBT_VERSION_TAG: sbt-0.13.15_mongo-3.2.17_node-8.x_jdk-8
       USER_UID: 1001
       USER_GID: 1001
+      TARGET_DIR: &target_dir target/scala-2.12
     steps:
       - checkout
       - attach_workspace:
@@ -34,10 +35,14 @@ jobs:
       - run:
           name: Build server
           command: docker-compose run sbt sbt assembly
+      - run:
+          name: Get FossilDB version
+          command: docker-compose run sbt java -jar $TARGET_DIR/fossildb.jar --version > $TARGET_DIR/version
       - persist_to_workspace:
-          root: target/scala-2.12
+          root: *target_dir
           paths:
             - fossildb.jar
+            - version
       - save_cache:
           key: cache-{{ .Branch }}
           paths:
@@ -139,7 +144,7 @@ jobs:
             -r fossildb
             -c $(git rev-parse HEAD)
             -b "executable jar of __fossildb__"
-            $(git semver next)
+            $(cat /tmp/workspace/version)
             /tmp/workspace/fossildb.jar
 
 workflows:
