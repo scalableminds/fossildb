@@ -118,12 +118,28 @@ jobs:
     steps:
       - attach_workspace:
           at: /tmp/workspace
+      - checkout
       - run:
-          name: Get ghr
+          name: Install ghr
           command: go get github.com/tcnksm/ghr
       - run:
+          name: Install git-semver
+          command: >
+            git clone https://github.com/markchalloner/git-semver.git
+            cd git-semver
+            git checkout 2.0.2
+            ./install.sh
+      - run:
           name: Release jar on Github
-          command: ghr -t $GITHUB_TOKEN -u $CIRCLE_PROJECT_USERNAME -r $CIRCLE_PROJECT_REPONAME --replace test /tmp/workspace/fossildb.jar
+          command: |
+            ghr
+            -t $GITHUB_TOKEN
+            -u scalableminds
+            -r fossildb
+            -c $(git rev-parse HEAD)
+            -draft
+            test-$(git semver next)
+            /tmp/workspace/fossildb.jar
 
 workflows:
   version: 2
