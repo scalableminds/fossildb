@@ -124,14 +124,15 @@ jobs:
           command: go get github.com/tcnksm/ghr
       - run:
           name: Install git-semver
-          command: >
+          command: |
+            set -xe
             git clone https://github.com/markchalloner/git-semver.git
             cd git-semver
             git checkout 2.0.2
             ./install.sh
       - run:
           name: Release jar on Github
-          command: |
+          command: >
             ghr
             -t $GITHUB_TOKEN
             -u scalableminds
