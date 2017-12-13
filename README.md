@@ -22,3 +22,6 @@ For further options, see `help`:
   -c, --columnFamilies <cf1>,<cf2>...
                            column families of the database (created if there is no db yet)
 ```
+
+## API
+Fossildb can be used via its [gRPC API](src/main/protobuf/fossildbapi.proto).
