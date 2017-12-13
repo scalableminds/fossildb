@@ -138,8 +138,7 @@ jobs:
             -u scalableminds
             -r fossildb
             -c $(git rev-parse HEAD)
-            -b "executable jar of __fossildb__:\n`java -jar $FOSSILDB_HOME/fossildb.jar …`"
-            -draft
+            -b "executable jar of __fossildb__"
             $(git semver next)
             /tmp/workspace/fossildb.jar
 
@@ -160,6 +159,9 @@ workflows:
             - build_and_push_db
             - build_and_push_client
       - release_on_github:
+          branches:
+            only:
+              - master
           requires:
             - build_and_push_db
             - smoketest
