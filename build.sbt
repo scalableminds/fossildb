@@ -3,7 +3,19 @@ import sbtbuildinfo.{BuildInfoKey, BuildInfoOption}
 
 name := "fossildb"
 
-version := "0.1"
+def getVersionFromGit: String = {
+  def run(cmd: String): String = (new java.io.BufferedReader(new java.io.InputStreamReader(java.lang.Runtime.getRuntime().exec(cmd).getInputStream()))).readLine()
+  def getBranch = run("git rev-parse --abbrev-ref HEAD")
+
+  if (sys.env.get("CI").isDefined && getBranch == "master") {
+    val oldVersion = run("git describe --tags --abbrev=0").split('.').toList.map(_.toInt)
+    (oldVersion.init :+ (oldVersion.last + 1)).mkString(".")
+  } else {
+    "DEV-" + getBranch
+  }
+}
+
+version := getVersionFromGit
 
 scalaVersion := "2.12.4"
 
