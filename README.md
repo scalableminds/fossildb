@@ -24,4 +24,4 @@ For further options, see `help`:
 ```
 
 ## API
-Fossildb can be used via its [gRPC API](src/main/protobuf/fossildbapi.proto).
+FossilDB can be used via its [gRPC API](src/main/protobuf/fossildbapi.proto).
