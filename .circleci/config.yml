@@ -138,7 +138,7 @@ jobs:
             -u scalableminds
             -r fossildb
             -c $(git rev-parse HEAD)
-            -b "executable jar of __fossildb__"
+            -b "executable jar of __FossilDB__"
             $(git semver next)
             /tmp/workspace/fossildb.jar
 
