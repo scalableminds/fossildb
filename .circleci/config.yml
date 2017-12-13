@@ -147,7 +147,7 @@ jobs:
             -r fossildb
             -c $(git rev-parse HEAD)
             -b "executable jar of __FossilDB__"
-            $(cat /tmp/workspace/version)
+            $(cat /tmp/workspace/version | tr -d [:space:])
             /tmp/workspace/fossildb.jar
 
 workflows:
