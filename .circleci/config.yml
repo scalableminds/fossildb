@@ -34,7 +34,7 @@ jobs:
           key: cache-{{ .Branch }}
       - run:
           name: Build server
-          command: docker-compose run sbt sbt assembly
+          command: docker-compose run -e CI=$CI sbt sbt assembly
       - run:
           name: Get FossilDB version
           command: docker-compose run sbt java -jar $TARGET_DIR/fossildb.jar --version > $TARGET_DIR/version
