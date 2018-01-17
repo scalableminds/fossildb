@@ -16,7 +16,7 @@ def main():
     srcPort = 7156
     dstPort = 7155
 
-    listKeysBatchSize = 2
+    listKeysBatchSize = 300
 
 
 
@@ -57,7 +57,7 @@ def main():
                         print("total put count:", putCount)
 
             lastKey = listKeysReply.keys[-1]
-    print("total put count:", putCount)
+    print("Done. total put count:", putCount)
 
 def testHealth(stub, label):
     try:
