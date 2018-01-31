@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+
+import argparse
+import grpc
+import sys
+
+import fossildbapi_pb2 as proto
+import fossildbapi_pb2_grpc as proto_rpc
+
+MAX_MESSAGE_LENGTH = 1073741824
+
+def main():
+    verbose = True
+
+    collections = ['skeletons', 'volumes', 'volumeData', 'skeletonUpdates']
+
+    listKeysBatchSize = 300
+
+    srcPort = 2000
+    dstPort = 7155
+
+    srcChannel = grpc.insecure_channel('localhost:{}'.format(srcPort), options=[('grpc.max_send_message_length', MAX_MESSAGE_LENGTH), (
+    'grpc.max_receive_message_length', MAX_MESSAGE_LENGTH)])
+    srcStub = proto_rpc.FossilDBStub(srcChannel)
+
+    dstChannel = grpc.insecure_channel('localhost:{}'.format(dstPort), options=[('grpc.max_send_message_length', MAX_MESSAGE_LENGTH), (
+    'grpc.max_receive_message_length', MAX_MESSAGE_LENGTH)])
+    dstStub = proto_rpc.FossilDBStub(dstChannel)
+
+    testHealth(srcStub, 'source fossildb at {}'.format(srcPort))
+    testHealth(dstStub, 'destination fossildb at {}'.format(dstPort))
+
+    putCount = 0
+
+    for collection in collections:
+        print('copying collection ' + collection)
+        lastKey = None
+        while True:
+            listKeysReply = srcStub.ListKeys(proto.ListKeysRequest(collection=collection, limit=listKeysBatchSize, startAfterKey=lastKey))
+            assertSuccess(listKeysReply)
+            if len(listKeysReply.keys) == 0:
+                break
+            if verbose:
+                print('  copying key batch ', listKeysReply.keys)
+            for key in listKeysReply.keys:
+                if verbose:
+                    print('    copying key ', key)
+                getMultipleVersionsReply = srcStub.GetMultipleVersions(proto.GetMultipleVersionsRequest(collection=collection, key=key))
+                assertSuccess(getMultipleVersionsReply)
+                for versionValueTuple in zip(getMultipleVersionsReply.versions, getMultipleVersionsReply.values):
+                    if verbose:
+                        print('      copying version ', versionValueTuple[0])
+                    putReply = dstStub.Put(proto.PutRequest(collection=collection, key=key, version=versionValueTuple[0], value=versionValueTuple[1]))
+                    assertSuccess(putReply)
+                    putCount += 1
+                    if (verbose and putCount % 10 == 0) or putCount % 10000 == 0:
+                        print("total put count:", putCount)
+
+            lastKey = listKeysReply.keys[-1]
+    print("Done. total put count:", putCount)
+
+def testHealth(stub, label):
+    try:
+        reply = stub.Health(proto.HealthRequest())
+        assertSuccess(reply)
+        print('successfully connected to ' + label)
+    except Exception as e:
+        print('failed to connect to ' + label + ': ' + str(e))
+        sys.exit(1)
+
+def assertSuccess(reply):
+    if not reply.success:
+        raise Exception("reply.success failed: " + reply.errorMessage)
+
+if __name__ == '__main__':
+    main()
