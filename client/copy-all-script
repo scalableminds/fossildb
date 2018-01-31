@@ -7,24 +7,24 @@ import sys
 import fossildbapi_pb2 as proto
 import fossildbapi_pb2_grpc as proto_rpc
 
+MAX_MESSAGE_LENGTH = 1073741824
 
 def main():
-    verbose = False
+    verbose = True
 
     collections = ['skeletons', 'volumes', 'volumeData', 'skeletonUpdates']
 
-    srcPort = 7156
-    dstPort = 7155
-
     listKeysBatchSize = 300
 
+    srcPort = 2000
+    dstPort = 7155
 
-
-
-    srcChannel = grpc.insecure_channel('localhost:{}'.format(srcPort))
+    srcChannel = grpc.insecure_channel('localhost:{}'.format(srcPort), options=[('grpc.max_send_message_length', MAX_MESSAGE_LENGTH), (
+    'grpc.max_receive_message_length', MAX_MESSAGE_LENGTH)])
     srcStub = proto_rpc.FossilDBStub(srcChannel)
 
-    dstChannel = grpc.insecure_channel('localhost:{}'.format(dstPort))
+    dstChannel = grpc.insecure_channel('localhost:{}'.format(dstPort), options=[('grpc.max_send_message_length', MAX_MESSAGE_LENGTH), (
+    'grpc.max_receive_message_length', MAX_MESSAGE_LENGTH)])
     dstStub = proto_rpc.FossilDBStub(dstChannel)
 
     testHealth(srcStub, 'source fossildb at {}'.format(srcPort))
@@ -34,7 +34,7 @@ def main():
 
     for collection in collections:
         print('copying collection ' + collection)
-        lastKey = ''
+        lastKey = None
         while True:
             listKeysReply = srcStub.ListKeys(proto.ListKeysRequest(collection=collection, limit=listKeysBatchSize, startAfterKey=lastKey))
             assertSuccess(listKeysReply)

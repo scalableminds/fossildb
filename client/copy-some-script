@@ -7,23 +7,27 @@ import sys
 import fossildbapi_pb2 as proto
 import fossildbapi_pb2_grpc as proto_rpc
 
+MAX_MESSAGE_LENGTH = 1073741824
+
 def main():
-    verbose = False
+    verbose = True
 
     collectionsByTyp = {
         'skeleton': ['skeletons', 'skeletonUpdates'],
         'volume': ['volumes', 'volumeData']
     }
 
-    srcPort = 7156
-    dstPort = 7156
+    srcPort = 2000
+    dstPort = 7155
 
     tracingReferences = json.load(open('tracingReferences.json'))
 
-    srcChannel = grpc.insecure_channel('localhost:{}'.format(srcPort))
+    srcChannel = grpc.insecure_channel('localhost:{}'.format(srcPort), options=[('grpc.max_send_message_length', MAX_MESSAGE_LENGTH), (
+    'grpc.max_receive_message_length', MAX_MESSAGE_LENGTH)])
     srcStub = proto_rpc.FossilDBStub(srcChannel)
 
-    dstChannel = grpc.insecure_channel('localhost:{}'.format(dstPort))
+    dstChannel = grpc.insecure_channel('localhost:{}'.format(dstPort), options=[('grpc.max_send_message_length', MAX_MESSAGE_LENGTH), (
+    'grpc.max_receive_message_length', MAX_MESSAGE_LENGTH)])
     dstStub = proto_rpc.FossilDBStub(dstChannel)
 
     testHealth(srcStub, 'source fossildb at {}'.format(srcPort))
