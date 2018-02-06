@@ -112,11 +112,11 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
     }
   }
 
-  def getMultipleKeys(key: String, prefix: Option[String] = None, version: Option[Long] = None): (Seq[String], Seq[Array[Byte]]) = {
+  def getMultipleKeys(key: String, prefix: Option[String] = None, version: Option[Long] = None, limit: Option[Int]): (Seq[String], Seq[Array[Byte]]) = {
     requireValidKey(key)
     prefix.map{p => requireValidKey(p)}
     val iterator: Iterator[VersionedKeyValuePair[Array[Byte]]] = scanKeys(key, prefix, version)
-    val asSequence = iterator.toSeq
+    val asSequence = iterator.take(limit.getOrElse(Int.MaxValue)).toSeq
     val keys = asSequence.map(_.key)
     val values = asSequence.map(_.value)
     (keys, values)
