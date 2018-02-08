@@ -21,6 +21,14 @@ services:
     links:
       - fossildb
 
+  client:
+    image: scalableminds/fossildb-client:${FOSSILDB_CLIENT_TAG:-master}
+    volumes:
+      - ".:/app"
+    working_dir: /app
+    entrypoint: /bin/bash
+    network_mode: host
+
   sbt:
     image: scalableminds/sbt:${SBT_VERSION_TAG:-sbt-0.13.15_mongo-3.2.17_node-8.x_jdk-8}
     environment:

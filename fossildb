@@ -4,7 +4,12 @@ set -Eeuo pipefail
 FOSSILDB_HOME=$(dirname $(readlink -f $0))
 
 if [ "$(id -u)" = '0' ]; then
-  chown -R fossildb $FOSSILDB_HOME/data $FOSSILDB_HOME/backup
+  for SUBDIR in data backup; do
+    DIR=$FOSSILDB_HOME/$SUBDIR
+    if [ -d "$DIR" ]; then
+      chown -R fossildb  $DIR
+    fi
+  done
   exec gosu fossildb java -jar $FOSSILDB_HOME/fossildb.jar $@
 else
   exec java -jar $FOSSILDB_HOME/fossildb.jar $@

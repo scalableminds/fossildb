@@ -21,6 +21,7 @@ jobs:
       SBT_VERSION_TAG: sbt-0.13.15_mongo-3.2.17_node-8.x_jdk-8
       USER_UID: 1001
       USER_GID: 1001
+      TARGET_DIR: &target_dir target/scala-2.12
     steps:
       - checkout
       - attach_workspace:
@@ -33,7 +34,15 @@ jobs:
           key: cache-{{ .Branch }}
       - run:
           name: Build server
-          command: docker-compose run sbt sbt assembly
+          command: docker-compose run -e CI=$CI sbt sbt assembly
+      - run:
+          name: Get FossilDB version
+          command: docker-compose run sbt java -jar $TARGET_DIR/fossildb.jar --version > $TARGET_DIR/version
+      - persist_to_workspace:
+          root: *target_dir
+          paths:
+            - fossildb.jar
+            - version
       - save_cache:
           key: cache-{{ .Branch }}
           paths:
@@ -50,7 +59,6 @@ jobs:
       - run:
           name: Push to DockerHub
           command: |
-            set -x
             docker login -u $DOCKER_USER -p $DOCKER_PASS
             docker push scalableminds/fossildb:${CIRCLE_BRANCH}__${COMMON_BUILD_NUM}
             docker push scalableminds/fossildb:${CIRCLE_BRANCH}
@@ -74,7 +82,6 @@ jobs:
       - run:
           name: Push to DockerHub
           command: |
-            set -x
             docker login -u $DOCKER_USER -p $DOCKER_PASS
             docker push scalableminds/fossildb-client:${CIRCLE_BRANCH}__${COMMON_BUILD_NUM}
             docker push scalableminds/fossildb-client:${CIRCLE_BRANCH}
@@ -90,7 +97,6 @@ jobs:
       - run:
           name: Pull from DockerHub
           command: |
-            set -x
             docker login -u $DOCKER_USER -p $DOCKER_PASS
             docker pull scalableminds/fossildb:${CIRCLE_BRANCH}__${COMMON_BUILD_NUM}
             docker pull scalableminds/fossildb-client:${CIRCLE_BRANCH}__${COMMON_BUILD_NUM}
@@ -108,6 +114,38 @@ jobs:
           command: >
             FOSSILDB_CLIENT_TAG=${CIRCLE_BRANCH}__${COMMON_BUILD_NUM}
             docker-compose run fossildb-health-check
+  release_on_github:
+    docker:
+      - image: golang:1.9
+    steps:
+      - attach_workspace:
+          at: /tmp/workspace
+      - checkout
+      - run:
+          name: Install ghr
+          command: go get github.com/tcnksm/ghr
+      - run:
+          name: Install git-semver
+          command: |
+            set -x
+            git clone https://github.com/markchalloner/git-semver.git
+            cd git-semver
+            git checkout 2.0.2
+            ./install.sh
+      - run:
+          name: Show version
+          command: cat /tmp/workspace/version
+      - run:
+          name: Release jar on Github
+          command: >
+            ghr
+            -t $GITHUB_TOKEN
+            -u scalableminds
+            -r fossildb
+            -c $(git rev-parse HEAD)
+            -b "executable jar of __FossilDB__"
+            $(cat /tmp/workspace/version | tr -d [:space:])
+            /tmp/workspace/fossildb.jar
 
 workflows:
   version: 2
@@ -125,3 +163,10 @@ workflows:
             - set_common_build_number
             - build_and_push_db
             - build_and_push_client
+      - release_on_github:
+          filters:
+            branches:
+              only: master
+          requires:
+            - build_and_push_db
+            - smoketest
