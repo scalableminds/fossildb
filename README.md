@@ -1,4 +1,4 @@
-# FossilDB
+# <img src="logo.svg" alt="FossilDB" width="200">
 
 Versioned Key-Value Store with RocksDB backend and gRPC API
 
