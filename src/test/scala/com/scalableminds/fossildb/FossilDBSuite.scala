@@ -237,6 +237,21 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach {
     assert(reply.values.contains(testData2))
   }
 
+  it should "with limit return only the first n keys of matching version " in {
+    client.put(PutRequest(collectionA, aKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, anotherKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aThirdKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aKey, Some(1), testData2))
+    client.put(PutRequest(collectionA, anotherKey, Some(1), testData2))
+    client.put(PutRequest(collectionA, aThirdKey, Some(1), testData2))
+    client.put(PutRequest(collectionA, aKey, Some(2), testData3))
+    client.put(PutRequest(collectionA, anotherKey, Some(2), testData3))
+    client.put(PutRequest(collectionA, aThirdKey, Some(2), testData3))
+    val reply = client.getMultipleKeys(GetMultipleKeysRequest(collectionA, aKey, None, Some(1), Some(2)))
+    assert(reply.keys.length == 2)
+    assert(reply.values.contains(testData2))
+  }
+
   "Backup" should "create non-empty backup directory" in {
     client.put(PutRequest(collectionA, aKey, Some(0), testData1))
     client.backup(BackupRequest())
