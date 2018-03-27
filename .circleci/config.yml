@@ -125,14 +125,6 @@ jobs:
           name: Install ghr
           command: go get github.com/tcnksm/ghr
       - run:
-          name: Install git-semver
-          command: |
-            set -x
-            git clone https://github.com/markchalloner/git-semver.git
-            cd git-semver
-            git checkout 2.0.2
-            ./install.sh
-      - run:
           name: Show version
           command: cat /tmp/workspace/version
       - run:
