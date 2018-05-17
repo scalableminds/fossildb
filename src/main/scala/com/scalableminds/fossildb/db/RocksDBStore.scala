@@ -30,8 +30,6 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     }
     val columnFamilyHandles = new util.ArrayList[ColumnFamilyHandle]
     var options = new DBOptions()
-      .setCreateIfMissing(true)
-      .setCreateMissingColumnFamilies(true)
     var cfListRef: mutable.Buffer[ColumnFamilyDescriptor] = mutable.Buffer()
     optionsFilePathOpt.map { optionsFilePath =>
       try {
@@ -39,11 +37,13 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
         logger.info("successfully loaded rocksdb options from " + optionsFilePath)
       } catch {
         case e: Exception => {
-          logger.error("Failed to load rocksdb options from file " + optionsFilePath + ": " + e.getMessage)
-          System.exit(1)
+          throw new Exception("Failed to load rocksdb options from file " + optionsFilePath, e)
         }
       }
     }
+    options = options
+      .setCreateIfMissing(true)
+      .setCreateMissingColumnFamilies(true)
     logger.info("Opening RocksDB at " + dataDir.toAbsolutePath)
     val db = RocksDB.open(
       options,
