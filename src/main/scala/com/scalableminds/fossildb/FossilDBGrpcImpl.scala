@@ -6,6 +6,7 @@ package com.scalableminds.fossildb
 import java.io.{PrintWriter, StringWriter}
 
 import com.google.protobuf.ByteString
+import io.grpc.health.v1.HealthGrpc;
 import com.scalableminds.fossildb.db.StoreManager
 import com.scalableminds.fossildb.proto.fossildbapi._
 import com.trueaccord.scalapb.GeneratedMessage
@@ -13,7 +14,10 @@ import com.typesafe.scalalogging.LazyLogging
 
 import scala.concurrent.Future
 
-class FossilDBGrpcImpl(storeManager: StoreManager) extends FossilDBGrpc.FossilDB with LazyLogging {
+class FossilDBGrpcImpl(storeManager: StoreManager)
+  extends FossilDBGrpc.FossilDB
+  with LazyLogging
+  with HealthGrpc.HealthImplBase {
 
   override def health(req: HealthRequest) = withExceptionHandler(req) {
     HealthReply(true)
