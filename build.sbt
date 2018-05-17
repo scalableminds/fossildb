@@ -25,7 +25,7 @@ libraryDependencies ++= Seq(
   "org.scalatest" % "scalatest_2.12" % "3.0.4" % "test",
   "io.grpc" % "grpc-netty" % com.trueaccord.scalapb.compiler.Version.grpcJavaVersion,
   "com.trueaccord.scalapb" %% "scalapb-runtime-grpc" % com.trueaccord.scalapb.compiler.Version.scalapbVersion,
-  "org.rocksdb" % "rocksdbjni" % "5.1.2",
+  "org.rocksdb" % "rocksdbjni" % "5.11.3",
   "com.github.scopt" %% "scopt" % "3.7.0"
 )
 

@@ -10,13 +10,14 @@ import com.typesafe.scalalogging.LazyLogging
 import org.rocksdb._
 
 import scala.collection.JavaConverters._
+import scala.collection.mutable
 import scala.concurrent.Future
 
 case class BackupInfo(id: Int, timestamp: Long, size: Long)
 
 case class KeyValuePair[T](key: String, value: T)
 
-class RocksDBManager(dataDir: Path, columnFamilies: List[String]) extends LazyLogging {
+class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePathOpt: Option[String]) extends LazyLogging {
 
   val (db: RocksDB, columnFamilyHandles) = {
     RocksDB.loadLibrary()
@@ -28,9 +29,21 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String]) extends LazyLo
       new ColumnFamilyDescriptor(columnFamily, columnOptions)
     }
     val columnFamilyHandles = new util.ArrayList[ColumnFamilyHandle]
-    val options = new DBOptions()
+    var options = new DBOptions()
       .setCreateIfMissing(true)
       .setCreateMissingColumnFamilies(true)
+    var cfListRef: mutable.Buffer[ColumnFamilyDescriptor] = mutable.Buffer()
+    optionsFilePathOpt.map { optionsFilePath =>
+      try {
+        org.rocksdb.OptionsUtil.loadOptionsFromFile(optionsFilePath, Env.getDefault, options, cfListRef.asJava)
+        logger.info("successfully loaded rocksdb options from " + optionsFilePath)
+      } catch {
+        case e: Exception => {
+          logger.error("Failed to load rocksdb options from file " + optionsFilePath + ": " + e.getMessage)
+          System.exit(1)
+        }
+      }
+    }
     logger.info("Opening RocksDB at " + dataDir.toAbsolutePath)
     val db = RocksDB.open(
       options,
