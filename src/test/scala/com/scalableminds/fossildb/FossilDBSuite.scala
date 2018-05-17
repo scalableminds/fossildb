@@ -48,7 +48,7 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach {
 
     val columnFamilies = List(collectionA, collectionB)
 
-    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies)
+    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, None)
 
     serverOpt.map(_.stop())
     serverOpt = Some(new FossilDBServer(storeManager, port, ExecutionContext.global))
