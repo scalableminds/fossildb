@@ -5,7 +5,7 @@ package com.scalableminds.fossildb
 
 import com.scalableminds.fossildb.db.StoreManager
 import com.scalableminds.fossildb.proto.fossildbapi.FossilDBGrpc
-import io.grpc.health.v1.HealthGrpc
+import io.grpc.health.v1.{HealthCheckResponse, HealthGrpc}
 import com.typesafe.scalalogging.LazyLogging
 import io.grpc.Server
 import io.grpc.netty.NettyServerBuilder
@@ -24,6 +24,7 @@ class FossilDBServer(storeManager: StoreManager, port: Int, executionContext: Ex
       .addService(FossilDBGrpc.bindService(new FossilDBGrpcImpl(storeManager), executionContext))
       .addService(healthStatusManager.getHealthService())
       .build.start
+    healthStatusManager.setStatus("", HealthCheckResponse.ServingStatus.SERVING)
     logger.info("Server started, listening on " + port)
     sys.addShutdownHook {
       logger.info("Shutting down gRPC server since JVM is shutting down")
@@ -36,6 +37,7 @@ class FossilDBServer(storeManager: StoreManager, port: Int, executionContext: Ex
     if (server != null) {
       server.shutdown()
       storeManager.close
+      healthStatusManager.setStatus("", HealthCheckResponse.ServingStatus.NOT_SERVING)
     }
   }
 
