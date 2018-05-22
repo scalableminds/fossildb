@@ -23,7 +23,7 @@ libraryDependencies ++= Seq(
   "ch.qos.logback" % "logback-classic" % "1.2.3",
   "com.typesafe.scala-logging" %% "scala-logging" % "3.7.2",
   "org.scalatest" % "scalatest_2.12" % "3.0.4" % "test",
-  "io.grpc" % "grpc-all" % scalapb.compiler.Version.grpcJavaVersion,
+  "io.grpc" % "grpc-netty" % scalapb.compiler.Version.grpcJavaVersion,
   "io.grpc" % "grpc-services" % scalapb.compiler.Version.grpcJavaVersion,
   "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % scalapb.compiler.Version.scalapbVersion,
   "org.rocksdb" % "rocksdbjni" % "5.1.2",

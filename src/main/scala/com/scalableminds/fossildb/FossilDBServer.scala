@@ -5,7 +5,7 @@ package com.scalableminds.fossildb
 
 import com.scalableminds.fossildb.db.StoreManager
 import com.scalableminds.fossildb.proto.fossildbapi.FossilDBGrpc
-import io.grpc.health.v1.{HealthCheckResponse, HealthGrpc}
+import io.grpc.health.v1.HealthCheckResponse
 import com.typesafe.scalalogging.LazyLogging
 import io.grpc.Server
 import io.grpc.netty.NettyServerBuilder
