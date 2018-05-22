@@ -13,7 +13,9 @@ import com.typesafe.scalalogging.LazyLogging
 
 import scala.concurrent.Future
 
-class FossilDBGrpcImpl(storeManager: StoreManager) extends FossilDBGrpc.FossilDB with LazyLogging {
+class FossilDBGrpcImpl(storeManager: StoreManager)
+  extends FossilDBGrpc.FossilDB
+  with LazyLogging {
 
   override def health(req: HealthRequest) = withExceptionHandler(req) {
     HealthReply(true)
