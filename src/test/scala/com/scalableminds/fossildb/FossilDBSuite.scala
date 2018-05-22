@@ -9,6 +9,7 @@ import java.nio.file.Paths
 import com.google.protobuf.ByteString
 import com.scalableminds.fossildb.db.StoreManager
 import com.scalableminds.fossildb.proto.fossildbapi._
+import io.grpc.health.v1._
 import io.grpc.netty.NettyChannelBuilder
 import org.scalatest.{BeforeAndAfterEach, FlatSpec}
 
@@ -21,7 +22,9 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers {
 
   val port = 21505
   var serverOpt: Option[FossilDBServer] = None
-  val client = FossilDBGrpc.blockingStub(NettyChannelBuilder.forAddress("127.0.0.1", port).maxInboundMessageSize(Int.MaxValue).usePlaintext(true).build)
+  val channel = NettyChannelBuilder.forAddress("127.0.0.1", port).maxInboundMessageSize(Int.MaxValue).usePlaintext().build
+  val client = FossilDBGrpc.blockingStub(channel)
+  val healthClient = HealthGrpc.newBlockingStub(channel)
 
   val collectionA = "collectionA"
   val collectionB = "collectionB"
@@ -56,6 +59,11 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers {
   "Health" should "reply" in {
     val reply = client.health(HealthRequest())
     assert(reply.success)
+  }
+
+  "GRPC Standard Health Check" should "report SERVING" in {
+    val reply = healthClient.check(HealthCheckRequest.getDefaultInstance())
+    assert(reply.getStatus.toString == "SERVING")
   }
 
   "Put" should "overwrite old value" in {
