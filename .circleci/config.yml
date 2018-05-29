@@ -59,7 +59,7 @@ jobs:
       - run:
           name: Push to DockerHub
           command: |
-            docker login -u $DOCKER_USER -p $DOCKER_PASS
+            echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
             docker push scalableminds/fossildb:${CIRCLE_BRANCH}__${COMMON_BUILD_NUM}
             docker push scalableminds/fossildb:${CIRCLE_BRANCH}
             docker logout
@@ -82,7 +82,7 @@ jobs:
       - run:
           name: Push to DockerHub
           command: |
-            docker login -u $DOCKER_USER -p $DOCKER_PASS
+            echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
             docker push scalableminds/fossildb-client:${CIRCLE_BRANCH}__${COMMON_BUILD_NUM}
             docker push scalableminds/fossildb-client:${CIRCLE_BRANCH}
             docker logout
@@ -97,7 +97,7 @@ jobs:
       - run:
           name: Pull from DockerHub
           command: |
-            docker login -u $DOCKER_USER -p $DOCKER_PASS
+            echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
             docker pull scalableminds/fossildb:${CIRCLE_BRANCH}__${COMMON_BUILD_NUM}
             docker pull scalableminds/fossildb-client:${CIRCLE_BRANCH}__${COMMON_BUILD_NUM}
             docker logout
