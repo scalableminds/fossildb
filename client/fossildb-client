@@ -7,16 +7,18 @@ import sys
 import fossildbapi_pb2 as proto
 import fossildbapi_pb2_grpc as proto_rpc
 
+from grpc_health.v1 import health_pb2
+from grpc_health.v1 import health_pb2_grpc
 
 def main():
 
     commands = {
-        'backup': lambda stub:
+        'backup': lambda stub, healthStub:
             stub.Backup(proto.BackupRequest()),
-        'restore': lambda stub:
+        'restore': lambda stub, healthStub:
             stub.RestoreFromBackup(proto.RestoreFromBackupRequest()),
-        'health': lambda stub:
-            stub.Health(proto.HealthRequest())
+        'health': lambda stub, healthStub:
+            healthStub.Check(health_pb2.HealthCheckRequest(service=''))
     }
 
     parser = argparse.ArgumentParser()
@@ -43,8 +45,9 @@ def main():
 
     channel = grpc.insecure_channel(full_address)
     stub = proto_rpc.FossilDBStub(channel)
+    healthStub = health_pb2_grpc.HealthStub(channel)
 
-    reply = commands[args.command](stub)
+    reply = commands[args.command](stub, healthStub)
 
     print(reply)
     if not reply.success:

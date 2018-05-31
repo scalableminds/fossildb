@@ -1,2 +1,3 @@
 argparse
 grpcio-tools
+grpcio-health-checking
