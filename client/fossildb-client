@@ -13,12 +13,11 @@ from grpc_health.v1 import health_pb2_grpc
 def main():
 
     commands = {
-        'backup': lambda stub, healthStub:
+        'backup': lambda stub:
             stub.Backup(proto.BackupRequest()),
-        'restore': lambda stub, healthStub:
+        'restore': lambda stub:
             stub.RestoreFromBackup(proto.RestoreFromBackupRequest()),
-        'health': lambda stub, healthStub:
-            healthStub.Check(health_pb2.HealthCheckRequest(service=''))
+        'health': None
     }
 
     parser = argparse.ArgumentParser()
@@ -47,11 +46,25 @@ def main():
     stub = proto_rpc.FossilDBStub(channel)
     healthStub = health_pb2_grpc.HealthStub(channel)
 
-    reply = commands[args.command](stub, healthStub)
+    if args.command == 'health':
+        try :
+            reply = healthStub.Check(health_pb2.HealthCheckRequest(service=''))
+            print(reply)
+            UNKNOWN = 0;
+            SERVING = 1;
+            NOT_SERVING = 2;
+            if reply.status != SERVING:
+                raise Exception(reply.status)
+        except Exception as e:
+            print('Health check unsuccessful. FossilDB offline?')
+            print(e)
+            sys.exit(1)
 
-    print(reply)
-    if not reply.success:
-        sys.exit(1)
+    else:
+        reply = commands[args.command](stub)
+        print(reply)
+        if not reply.success:
+            sys.exit(1)
 
 
 if __name__ == '__main__':
