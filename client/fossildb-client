@@ -11,13 +11,30 @@ from grpc_health.v1 import health_pb2
 from grpc_health.v1 import health_pb2_grpc
 
 def main():
+    full_address = '{}:{}'.format(args.address, args.port)
+
+    print('Connecting to FossilDB at', full_address)
+    channel = grpc.insecure_channel(full_address)
+    
+    def health():
+        try :
+            healthStub = health_pb2_grpc.HealthStub(channel)
+            reply = healthStub.Check(health_pb2.HealthCheckRequest(service=''))
+            SERVING = health_pb2._HEALTHCHECKRESPONSE_SERVINGSTATUS.values_by_name["SERVING"].number
+            if reply.status != SERVING:
+                raise Exception(reply.status)
+        except Exception as e:
+            print('Health check unsuccessful. FossilDB offline?')
+            print(reply)
+            print(e)
+            sys.exit(1)
 
     commands = {
-        'backup': lambda stub:
-            stub.Backup(proto.BackupRequest()),
-        'restore': lambda stub:
-            stub.RestoreFromBackup(proto.RestoreFromBackupRequest()),
-        'health': None
+        'backup': lambda:
+            proto_rpc.FossilDBStub(channel).Backup(proto.BackupRequest()),
+        'restore': lambda:
+            proto_rpc.FossilDBStub(channel).RestoreFromBackup(proto.RestoreFromBackupRequest()),
+        'health': health
     }
 
     parser = argparse.ArgumentParser()
@@ -38,33 +55,10 @@ def main():
         parser.print_help()
         exit(20)
 
-    full_address = '{}:{}'.format(args.address, args.port)
-
-    print('Connecting to FossilDB at', full_address)
-
-    channel = grpc.insecure_channel(full_address)
-    stub = proto_rpc.FossilDBStub(channel)
-    healthStub = health_pb2_grpc.HealthStub(channel)
-
-    if args.command == 'health':
-        try :
-            reply = healthStub.Check(health_pb2.HealthCheckRequest(service=''))
-            print(reply)
-            UNKNOWN = 0;
-            SERVING = 1;
-            NOT_SERVING = 2;
-            if reply.status != SERVING:
-                raise Exception(reply.status)
-        except Exception as e:
-            print('Health check unsuccessful. FossilDB offline?')
-            print(e)
-            sys.exit(1)
-
-    else:
-        reply = commands[args.command](stub)
-        print(reply)
-        if not reply.success:
-            sys.exit(1)
+    reply = commands[args.command]()
+    print(reply)
+    if hasattr(reply, 'success') and not reply.success:
+        sys.exit(1)
 
 
 if __name__ == '__main__':
