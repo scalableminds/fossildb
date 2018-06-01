@@ -10,33 +10,8 @@ import fossildbapi_pb2_grpc as proto_rpc
 from grpc_health.v1 import health_pb2
 from grpc_health.v1 import health_pb2_grpc
 
-def main():
-    full_address = '{}:{}'.format(args.address, args.port)
 
-    print('Connecting to FossilDB at', full_address)
-    channel = grpc.insecure_channel(full_address)
-    
-    def health():
-        try :
-            healthStub = health_pb2_grpc.HealthStub(channel)
-            reply = healthStub.Check(health_pb2.HealthCheckRequest(service=''))
-            SERVING = health_pb2._HEALTHCHECKRESPONSE_SERVINGSTATUS.values_by_name["SERVING"].number
-            if reply.status != SERVING:
-                raise Exception(reply.status)
-        except Exception as e:
-            print('Health check unsuccessful. FossilDB offline?')
-            print(reply)
-            print(e)
-            sys.exit(1)
-
-    commands = {
-        'backup': lambda:
-            proto_rpc.FossilDBStub(channel).Backup(proto.BackupRequest()),
-        'restore': lambda:
-            proto_rpc.FossilDBStub(channel).RestoreFromBackup(proto.RestoreFromBackupRequest()),
-        'health': health
-    }
-
+def parse_args(commands):
     parser = argparse.ArgumentParser()
     parser.add_argument(
         'address', metavar='address', default='localhost', nargs='?',
@@ -49,13 +24,45 @@ def main():
         help='command to execute, one of {}'.format(list(commands.keys())))
 
     args = parser.parse_args()
-
     if args.command not in commands:
         print("command {} is not available".format(args.command))
         parser.print_help()
         exit(20)
 
-    reply = commands[args.command]()
+    return args
+
+
+def health(channel):
+    try :
+        healthStub = health_pb2_grpc.HealthStub(channel)
+        reply = healthStub.Check(health_pb2.HealthCheckRequest(service=''))
+        STATUSMAP = health_pb2._HEALTHCHECKRESPONSE_SERVINGSTATUS.values_by_name
+        SERVING = STATUSMAP["SERVING"].number
+        if reply.status != SERVING:
+            raise Exception(reply.status)
+    except Exception as e:
+        print('Health check unsuccessful. FossilDB offline?')
+        print(e)
+        sys.exit(1)
+    return reply
+
+
+def main():
+    commands = {
+        'backup': lambda channel:
+            proto_rpc.FossilDBStub(channel).Backup(proto.BackupRequest()),
+        'restore': lambda channel:
+            proto_rpc.FossilDBStub(channel).RestoreFromBackup(proto.RestoreFromBackupRequest()),
+        'health': health
+    }
+
+    args = parse_args(commands)
+    full_address = '{}:{}'.format(args.address, args.port)
+
+    print('Connecting to FossilDB at', full_address)
+    channel = grpc.insecure_channel(full_address)
+
+    reply = commands[args.command](channel)
     print(reply)
     if hasattr(reply, 'success') and not reply.success:
         sys.exit(1)
