@@ -48,6 +48,8 @@ jobs:
       - run:
           name: Smoke test
           command: |
+            set -x
+            echo ${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM}
             FOSSILDB_TAG=${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} \
             docker-compose up -d fossildb
             sleep 1
