@@ -36,6 +36,15 @@ jobs:
             .
 
       - run:
+          name: Build client docker image
+          command: |
+            docker build \
+            -f client/Dockerfile \
+            -t scalableminds/fossildb-client:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} \
+            -t scalableminds/fossildb-client:${CIRCLE_BRANCH} \
+            .
+
+      - run:
           name: Smoketest
           command: |
             FOSSILDB_TAG=${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} \
@@ -45,14 +54,6 @@ jobs:
             docker-compose run fossildb-health-check
             docker-compose down
 
-      - run:
-          name: Build client docker image
-          command: |
-            docker build \
-            -f client/Dockerfile \
-            -t scalableminds/fossildb-client:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} \
-            -t scalableminds/fossildb-client:${CIRCLE_BRANCH} \
-            .
       - run:
           name: Push to DockerHub
           command: |
