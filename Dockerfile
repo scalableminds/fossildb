@@ -10,6 +10,7 @@ COPY fossildb .
 RUN groupadd -r fossildb \
   && useradd -r -g fossildb fossildb \
   && ln -s /fossildb/fossildb /usr/local/bin \
+  && chmod 777 . \
   && chown -R fossildb .
 
 CMD [ "fossildb" ]

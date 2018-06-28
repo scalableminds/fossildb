@@ -9,6 +9,7 @@ import java.nio.file.Paths
 import com.google.protobuf.ByteString
 import com.scalableminds.fossildb.db.StoreManager
 import com.scalableminds.fossildb.proto.fossildbapi._
+import io.grpc.health.v1._
 import io.grpc.netty.NettyChannelBuilder
 import org.scalatest.{BeforeAndAfterEach, FlatSpec}
 
@@ -21,7 +22,9 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach {
 
   val port = 21505
   var serverOpt: Option[FossilDBServer] = None
-  val client = FossilDBGrpc.blockingStub(NettyChannelBuilder.forAddress("127.0.0.1", port).maxInboundMessageSize(Int.MaxValue).usePlaintext(true).build)
+  val channel = NettyChannelBuilder.forAddress("127.0.0.1", port).maxInboundMessageSize(Int.MaxValue).usePlaintext().build
+  val client = FossilDBGrpc.blockingStub(channel)
+  val healthClient = HealthGrpc.newBlockingStub(channel)
 
   val collectionA = "collectionA"
   val collectionB = "collectionB"
@@ -63,6 +66,11 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach {
   "Health" should "reply" in {
     val reply = client.health(HealthRequest())
     assert(reply.success)
+  }
+
+  "GRPC Standard Health Check" should "report SERVING" in {
+    val reply = healthClient.check(HealthCheckRequest.getDefaultInstance())
+    assert(reply.getStatus.toString == "SERVING")
   }
 
   "Put" should "overwrite old value" in {
@@ -234,6 +242,21 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach {
     client.put(PutRequest(collectionA, aThirdKey, Some(2), testData3))
     val reply = client.getMultipleKeys(GetMultipleKeysRequest(collectionA, aKey, Some("aK"), Some(1)))
     assert(reply.keys.length == 1)
+    assert(reply.values.contains(testData2))
+  }
+
+  it should "with limit return only the first n keys of matching version " in {
+    client.put(PutRequest(collectionA, aKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, anotherKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aThirdKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aKey, Some(1), testData2))
+    client.put(PutRequest(collectionA, anotherKey, Some(1), testData2))
+    client.put(PutRequest(collectionA, aThirdKey, Some(1), testData2))
+    client.put(PutRequest(collectionA, aKey, Some(2), testData3))
+    client.put(PutRequest(collectionA, anotherKey, Some(2), testData3))
+    client.put(PutRequest(collectionA, aThirdKey, Some(2), testData3))
+    val reply = client.getMultipleKeys(GetMultipleKeysRequest(collectionA, aKey, None, Some(1), Some(2)))
+    assert(reply.keys.length == 2)
     assert(reply.values.contains(testData2))
   }
 

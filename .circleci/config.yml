@@ -16,7 +16,6 @@ jobs:
 
       - restore_cache:
           key: cache-{{ .Branch }}
-
       - run:
           name: Build server
           command: docker-compose run -e CI=$CI sbt sbt assembly

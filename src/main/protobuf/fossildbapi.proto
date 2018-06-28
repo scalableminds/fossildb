@@ -64,6 +64,7 @@ message GetMultipleKeysRequest {
     required string key = 2;
     optional string prefix = 3;
     optional uint64 version = 4;
+    optional uint32 limit = 5;
 }
 
 message GetMultipleKeysReply {
