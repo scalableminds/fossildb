@@ -37,11 +37,11 @@ jobs:
 
       - run:
           name: Smoketest
-          command: >
-            FOSSILDB_TAG=${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM}
+          command: |
+            FOSSILDB_TAG=${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} \
             docker-compose up -d fossildb
             sleep 1
-            FOSSILDB_CLIENT_TAG=${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM}
+            FOSSILDB_CLIENT_TAG=${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} \
             docker-compose run fossildb-health-check
             docker-compose down
 
@@ -65,15 +65,14 @@ jobs:
 
       - run:
           name: Install ghr
-          command: >
+          command: |
             sudo add-apt-repository ppa:gophers/archive
             sudo apt-get update
-            sudo apt-get install golang-1.10-go
+            sudo apt-get install -y golang-1.10-go
             go get github.com/tcnksm/ghr
       - run:
           name: Install git-semver
           command: |
-            set -x
             git clone https://github.com/markchalloner/git-semver.git
             cd git-semver
             git checkout 2.0.2
@@ -83,16 +82,16 @@ jobs:
           command: cat version
       - run:
           name: Release jar on Github
-          command: >
+          command: |
             if [ "${CIRCLE_BRANCH}" == "master" ]; then
-              ghr
-              -t $GITHUB_TOKEN
-              -u scalableminds
-              -r fossildb
-              -c $(git rev-parse HEAD)
-              -b "executable jar of __FossilDB__"
-              $(cat version | tr -d [:space:])
-              fossildb.jar
+              ghr \
+                -t $GITHUB_TOKEN \
+                -u scalableminds \
+                -r fossildb \
+                -c $(git rev-parse HEAD) \
+                -b "Executable JAR of __FossilDB__" \
+                $(cat version | tr -d [:space:]) \
+                fossildb.jar
             fi
 
 workflows:
