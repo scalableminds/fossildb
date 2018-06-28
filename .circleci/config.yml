@@ -13,8 +13,10 @@ jobs:
       - run:
           name: Prepare dependency folders
           command: mkdir -p ~/.m2 ~/.ivy2 ~/.sbt
+
       - restore_cache:
           key: cache-{{ .Branch }}
+
       - run:
           name: Build server
           command: docker-compose run -e CI=$CI sbt sbt assembly
@@ -27,6 +29,7 @@ jobs:
             - "~/.m2"
             - "~/.ivy2"
             - "~/.sbt"
+
       - run:
           name: Build server docker image
           command: |
@@ -34,7 +37,6 @@ jobs:
             -t scalableminds/fossildb:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} \
             -t scalableminds/fossildb:${CIRCLE_BRANCH} \
             .
-
       - run:
           name: Build client docker image
           command: |
@@ -45,9 +47,9 @@ jobs:
             .
 
       - run:
-          name: Smoketest
+          name: Smoke test
           command: |
-            FOSSILDB_TAG=${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} \
+            FOSSILDB_TAG=${CIRCLE_BRANCH}__${COMMON_BUILD_NUM}
             docker-compose up -d fossildb
             sleep 1
             FOSSILDB_CLIENT_TAG=${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} \
@@ -55,9 +57,9 @@ jobs:
             docker-compose down
 
       - run:
-          name: Push to DockerHub
+          name: Push to Dockerhub
           command: |
-            docker login -u $DOCKER_USER -p $DOCKER_PASS
+            echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
             docker push scalableminds/fossildb:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM}
             docker push scalableminds/fossildb:${CIRCLE_BRANCH}
             docker push scalableminds/fossildb-client:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM}
@@ -65,34 +67,25 @@ jobs:
             docker logout
 
       - run:
-          name: Install ghr
-          command: |
-            sudo add-apt-repository ppa:gophers/archive
-            sudo apt-get update
-            sudo apt-get install -y golang-1.10-go
-            go get github.com/tcnksm/ghr
-      - run:
-          name: Install git-semver
-          command: |
-            git clone https://github.com/markchalloner/git-semver.git
-            cd git-semver
-            git checkout 2.0.2
-            ./install.sh
-      - run:
           name: Show version
-          command: cat version
+          command: cat $TARGET_DIR/version
       - run:
-          name: Release jar on Github
+          name: Release JAR on Github
           command: |
             if [ "${CIRCLE_BRANCH}" == "master" ]; then
+              sudo add-apt-repository ppa:gophers/archive
+              sudo apt-get update
+              sudo apt-get install -y golang-1.10-go
+              go get github.com/tcnksm/ghr
+
               ghr \
                 -t $GITHUB_TOKEN \
                 -u scalableminds \
                 -r fossildb \
                 -c $(git rev-parse HEAD) \
                 -b "Executable JAR of __FossilDB__" \
-                $(cat version | tr -d [:space:]) \
-                fossildb.jar
+                $(cat $TARGET_DIR/version | tr -d [:space:]) \
+                $TARGET_DIR/fossildb.jar
             fi
 
 workflows:
