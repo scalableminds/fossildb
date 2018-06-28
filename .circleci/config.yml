@@ -1,20 +1,6 @@
 version: 2
-get_common_build_num: &get_common_build_num
-  name: Export commond build number
-  command: echo "export COMMON_BUILD_NUM=$(cat /tmp/workspace/build)" >> $BASH_ENV
 jobs:
-  set_common_build_number:
-    docker:
-      - image: buildpack-deps:jessie
-    steps:
-      - run:
-          name: Write build number
-          command: echo "${CIRCLE_BUILD_NUM}" > build
-      - persist_to_workspace:
-          root: .
-          paths:
-            - build
-  build_and_push_db:
+  build_and_push:
     machine:
       image: circleci/classic:latest
     environment:
@@ -24,9 +10,6 @@ jobs:
       TARGET_DIR: &target_dir target/scala-2.12
     steps:
       - checkout
-      - attach_workspace:
-          at: /tmp/workspace
-      - run: *get_common_build_num
       - run:
           name: Prepare dependency folders
           command: mkdir -p ~/.m2 ~/.ivy2 ~/.sbt
@@ -38,11 +21,6 @@ jobs:
       - run:
           name: Get FossilDB version
           command: docker-compose run sbt java -jar $TARGET_DIR/fossildb.jar --version > $TARGET_DIR/version
-      - persist_to_workspace:
-          root: *target_dir
-          paths:
-            - fossildb.jar
-            - version
       - save_cache:
           key: cache-{{ .Branch }}
           paths:
@@ -53,77 +31,45 @@ jobs:
           name: Build server docker image
           command: |
             docker build \
-            -t scalableminds/fossildb:${CIRCLE_BRANCH}__${COMMON_BUILD_NUM} \
+            -t scalableminds/fossildb:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} \
             -t scalableminds/fossildb:${CIRCLE_BRANCH} \
             .
+
       - run:
-          name: Push to DockerHub
-          command: |
-            docker login -u $DOCKER_USER -p $DOCKER_PASS
-            docker push scalableminds/fossildb:${CIRCLE_BRANCH}__${COMMON_BUILD_NUM}
-            docker push scalableminds/fossildb:${CIRCLE_BRANCH}
-            docker logout
-  build_and_push_client:
-    machine:
-      image: circleci/classic:latest
-    steps:
-      - checkout
-      - attach_workspace:
-          at: /tmp/workspace
-      - run: *get_common_build_num
+          name: Smoketest
+          command: >
+            FOSSILDB_TAG=${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM}
+            docker-compose up -d fossildb
+            sleep 1
+            FOSSILDB_CLIENT_TAG=${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM}
+            docker-compose run fossildb-health-check
+            docker-compose down
+
       - run:
           name: Build client docker image
           command: |
             docker build \
             -f client/Dockerfile \
-            -t scalableminds/fossildb-client:${CIRCLE_BRANCH}__${COMMON_BUILD_NUM} \
+            -t scalableminds/fossildb-client:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} \
             -t scalableminds/fossildb-client:${CIRCLE_BRANCH} \
             .
       - run:
           name: Push to DockerHub
           command: |
             docker login -u $DOCKER_USER -p $DOCKER_PASS
-            docker push scalableminds/fossildb-client:${CIRCLE_BRANCH}__${COMMON_BUILD_NUM}
+            docker push scalableminds/fossildb:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM}
+            docker push scalableminds/fossildb:${CIRCLE_BRANCH}
+            docker push scalableminds/fossildb-client:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM}
             docker push scalableminds/fossildb-client:${CIRCLE_BRANCH}
             docker logout
-  smoketest:
-    machine:
-      image: circleci/classic:latest
-    steps:
-      - checkout
-      - attach_workspace:
-          at: /tmp/workspace
-      - run: *get_common_build_num
-      - run:
-          name: Pull from DockerHub
-          command: |
-            docker login -u $DOCKER_USER -p $DOCKER_PASS
-            docker pull scalableminds/fossildb:${CIRCLE_BRANCH}__${COMMON_BUILD_NUM}
-            docker pull scalableminds/fossildb-client:${CIRCLE_BRANCH}__${COMMON_BUILD_NUM}
-            docker logout
-      - run:
-          name: Start fossildb
-          command: >
-            FOSSILDB_TAG=${CIRCLE_BRANCH}__${COMMON_BUILD_NUM}
-            docker-compose up -d fossildb
-      - run:
-          name: Wait a second
-          command: sleep 1
-      - run:
-          name: Check health endpoint
-          command: >
-            FOSSILDB_CLIENT_TAG=${CIRCLE_BRANCH}__${COMMON_BUILD_NUM}
-            docker-compose run fossildb-health-check
-  release_on_github:
-    docker:
-      - image: golang:1.9
-    steps:
-      - attach_workspace:
-          at: /tmp/workspace
-      - checkout
+
       - run:
           name: Install ghr
-          command: go get github.com/tcnksm/ghr
+          command: >
+            sudo add-apt-repository ppa:gophers/archive
+            sudo apt-get update
+            sudo apt-get install golang-1.10-go
+            go get github.com/tcnksm/ghr
       - run:
           name: Install git-semver
           command: |
@@ -134,39 +80,23 @@ jobs:
             ./install.sh
       - run:
           name: Show version
-          command: cat /tmp/workspace/version
+          command: cat version
       - run:
           name: Release jar on Github
           command: >
-            ghr
-            -t $GITHUB_TOKEN
-            -u scalableminds
-            -r fossildb
-            -c $(git rev-parse HEAD)
-            -b "executable jar of __FossilDB__"
-            $(cat /tmp/workspace/version | tr -d [:space:])
-            /tmp/workspace/fossildb.jar
+            if [ "${CIRCLE_BRANCH}" == "master" ]; then
+              ghr
+              -t $GITHUB_TOKEN
+              -u scalableminds
+              -r fossildb
+              -c $(git rev-parse HEAD)
+              -b "executable jar of __FossilDB__"
+              $(cat version | tr -d [:space:])
+              fossildb.jar
+            fi
 
 workflows:
   version: 2
   default:
     jobs:
-      - set_common_build_number
-      - build_and_push_db:
-          requires:
-            - set_common_build_number
-      - build_and_push_client:
-          requires:
-            - set_common_build_number
-      - smoketest:
-          requires:
-            - set_common_build_number
-            - build_and_push_db
-            - build_and_push_client
-      - release_on_github:
-          filters:
-            branches:
-              only: master
-          requires:
-            - build_and_push_db
-            - smoketest
+      - build_and_push
