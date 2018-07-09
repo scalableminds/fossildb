@@ -6,7 +6,7 @@ package com.scalableminds.fossildb.db
 import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicBoolean
 
-class StoreManager(dataDir: Path, backupDir: Path, columnFamilies: List[String]) {
+class StoreManager(dataDir: Path, backupDir: Path, columnFamilies: List[String], rocksdbOptions: Option[String]) {
 
   var rocksDBManager: Option[RocksDBManager] = None
   var stores: Option[Map[String, VersionedKeyValueStore]] = None
@@ -15,7 +15,7 @@ class StoreManager(dataDir: Path, backupDir: Path, columnFamilies: List[String])
 
   def reInitialize = {
     rocksDBManager.map(_.close)
-    rocksDBManager = Some(new RocksDBManager(dataDir, columnFamilies))
+    rocksDBManager = Some(new RocksDBManager(dataDir, columnFamilies, rocksdbOptions))
     stores = Some(columnFamilies.map { cf =>
       val store: VersionedKeyValueStore = new VersionedKeyValueStore(rocksDBManager.get.getStoreForColumnFamily(cf).get)
       (cf -> store)

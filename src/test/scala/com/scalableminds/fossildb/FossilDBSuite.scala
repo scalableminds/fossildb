@@ -15,8 +15,8 @@ import org.scalatest.{BeforeAndAfterEach, FlatSpec}
 
 import scala.concurrent.ExecutionContext
 
-class FossilDBSuite extends FlatSpec with BeforeAndAfterEach {
-  val testTempDir = "testData"
+class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers {
+  val testTempDir = "testData1"
   val dataDir = Paths.get(testTempDir, "data")
   val backupDir = Paths.get(testTempDir, "backup")
 
@@ -38,20 +38,13 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach {
   val anotherKey = "anotherKey"
   val aThirdKey = "aThirdKey"
 
-  private def deleteRecursively(file: File): Unit = {
-    if (file.isDirectory)
-      file.listFiles.foreach(deleteRecursively)
-    if (file.exists && !file.delete)
-      throw new Exception(s"Unable to delete ${file.getAbsolutePath}")
-  }
-
   override def beforeEach = {
     deleteRecursively(new File(testTempDir))
     new File(testTempDir).mkdir()
 
     val columnFamilies = List(collectionA, collectionB)
 
-    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies)
+    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, None)
 
     serverOpt.map(_.stop())
     serverOpt = Some(new FossilDBServer(storeManager, port, ExecutionContext.global))
