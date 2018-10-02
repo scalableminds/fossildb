@@ -55,8 +55,8 @@ class FossilDBGrpcImpl(storeManager: StoreManager)
 
   override def getMultipleKeys(req: GetMultipleKeysRequest) = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
-    val (keys, values) = store.getMultipleKeys(req.key, req.prefix, req.version, req.limit)
-    GetMultipleKeysReply(true, None, keys, values.map(ByteString.copyFrom(_)))
+    val (keys, values, versions) = store.getMultipleKeys(req.key, req.prefix, req.version, req.limit)
+    GetMultipleKeysReply(true, None, keys, values.map(ByteString.copyFrom(_)), versions)
   } {errorMsg => GetMultipleKeysReply(false, errorMsg)}
 
   override def deleteMultipleVersions(req: DeleteMultipleVersionsRequest) = withExceptionHandler(req) {
