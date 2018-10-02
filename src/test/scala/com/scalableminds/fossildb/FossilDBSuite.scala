@@ -206,6 +206,8 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers {
     assert(reply.values.length == 2)
     assert(reply.values.contains(testData2))
     assert(reply.values.contains(testData3))
+    assert(reply.actualVersions.length == 2)
+    assert(reply.actualVersions.contains(0))
   }
 
   it should "return keys of matching version (sorted alphabetically)" in {
@@ -236,6 +238,7 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers {
     val reply = client.getMultipleKeys(GetMultipleKeysRequest(collectionA, aKey, Some("aK"), Some(1)))
     assert(reply.keys.length == 1)
     assert(reply.values.contains(testData2))
+    assert(reply.actualVersions.contains(1))
   }
 
   it should "with limit return only the first n keys of matching version " in {
@@ -251,6 +254,7 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers {
     val reply = client.getMultipleKeys(GetMultipleKeysRequest(collectionA, aKey, None, Some(1), Some(2)))
     assert(reply.keys.length == 2)
     assert(reply.values.contains(testData2))
+    assert(reply.actualVersions.contains(1))
   }
 
   "Backup" should "create non-empty backup directory" in {
