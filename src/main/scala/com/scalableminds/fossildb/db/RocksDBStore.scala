@@ -30,6 +30,8 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     }
     val columnFamilyHandles = new util.ArrayList[ColumnFamilyHandle]
     var options = new DBOptions()
+    var env = Env.getDefault
+    options.setEnv(env.setBackgroundThreads(10, Env.FLUSH_POOL).setBackgroundThreads(10, Env.COMPACTION_POOL))
     var cfListRef: mutable.Buffer[ColumnFamilyDescriptor] = mutable.Buffer()
     optionsFilePathOpt.map { optionsFilePath =>
       try {

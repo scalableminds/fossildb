@@ -34,10 +34,15 @@ class FossilDBGrpcImpl(storeManager: StoreManager)
   } {errorMsg => GetReply(false, errorMsg, ByteString.EMPTY, 0)}
 
   override def put(req: PutRequest) = withExceptionHandler(req) {
-    val store = storeManager.getStore(req.collection)
-    val version = req.version.getOrElse(store.get(req.key, None).map(_.version + 1).getOrElse(0L))
-    require(version >= 0, "Version numbers must be non-negative")
-    store.put(req.key, version, req.value.toByteArray)
+    val t0 = System.nanoTime()
+    for (a <- 1 until 5000) {
+      val store = storeManager.getStore(req.collection)
+      val version = req.version.getOrElse(store.get(req.key, None).map(_.version + 1).getOrElse(0L))
+      require(version >= 0, "Version numbers must be non-negative")
+      store.put(req.key, a, req.value.toByteArray)
+    }
+    val t1 = System.nanoTime()
+    println("Elapsed time: " + (t1 - t0) /1000000 + " ms")
     PutReply(true)
   } {errorMsg => PutReply(false, errorMsg)}
 

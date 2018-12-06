@@ -15,7 +15,7 @@ import scala.collection.JavaConverters._
 import scala.io.Source
 
 class RocksOptionsSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers {
-
+/*
   val testTempDir = "testData2"
   val dataDir = Paths.get(testTempDir, "data")
   val backupDir = Paths.get(testTempDir, "backup")
@@ -70,5 +70,5 @@ class RocksOptionsSuite extends FlatSpec with BeforeAndAfterEach with TestHelper
   }
 
 
-
+*/
 }

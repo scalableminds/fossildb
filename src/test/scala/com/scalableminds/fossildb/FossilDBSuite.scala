@@ -20,7 +20,7 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers {
   val dataDir = Paths.get(testTempDir, "data")
   val backupDir = Paths.get(testTempDir, "backup")
 
-  val port = 21505
+  val port = 7155
   var serverOpt: Option[FossilDBServer] = None
   val channel = NettyChannelBuilder.forAddress("127.0.0.1", port).maxInboundMessageSize(Int.MaxValue).usePlaintext().build
   val client = FossilDBGrpc.blockingStub(channel)
@@ -37,7 +37,7 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers {
   val aKey = "aKey"
   val anotherKey = "anotherKey"
   val aThirdKey = "aThirdKey"
-
+/*
   override def beforeEach = {
     deleteRecursively(new File(testTempDir))
     new File(testTempDir).mkdir()
@@ -55,6 +55,7 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers {
     serverOpt.map(_.stop())
     deleteRecursively(new File(testTempDir))
   }
+
 
   "Health" should "reply" in {
     val reply = client.health(HealthRequest())
@@ -287,6 +288,17 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers {
     client.restoreFromBackup(RestoreFromBackupRequest())
     val reply = client.get(GetRequest(collectionA, aKey, Some(0)))
     assert(testData1 == reply.value)
+  }*/
+
+  "Put StressTest" should "be blazingly fast" in {
+    val data = ByteString.copyFrom(new Array[Byte](131072))
+    for (repetitions <- 1 to 10) {
+      val t0 = System.nanoTime()
+      client.put(PutRequest("volumeData", "aKey", Some(0), data))
+      val t1 = System.nanoTime()
+      println("Elapsed time: " + (t1 - t0) / 1000000 + " ms")
+    }
   }
+
 
 }
