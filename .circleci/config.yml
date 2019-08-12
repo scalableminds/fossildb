@@ -90,6 +90,6 @@ jobs:
 
 workflows:
   version: 2
-  default:
+  circleci_build:
     jobs:
       - build_and_push
