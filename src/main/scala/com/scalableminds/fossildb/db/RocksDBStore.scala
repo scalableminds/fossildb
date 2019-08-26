@@ -21,17 +21,9 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
 
   val (db: RocksDB, columnFamilyHandles) = {
     RocksDB.loadLibrary()
-    val columnOptions = new ColumnFamilyOptions()
-      .setArenaBlockSize(4 * 1024 * 1024)               // 4MB
-      .setTargetFileSizeBase(1024 * 1024 * 1024)        // 1GB
-      .setMaxBytesForLevelBase(10 * 1024 * 1024 * 1024) // 10GB
-    val columnFamilyDescriptors = (columnFamilies.map(_.getBytes) :+ RocksDB.DEFAULT_COLUMN_FAMILY).map { columnFamily =>
-      new ColumnFamilyDescriptor(columnFamily, columnOptions)
-    }
-    val columnFamilyHandles = new util.ArrayList[ColumnFamilyHandle]
-    var options = new DBOptions()
-    var cfListRef: mutable.Buffer[ColumnFamilyDescriptor] = mutable.Buffer()
-    optionsFilePathOpt.map { optionsFilePath =>
+    val options = new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true)
+    val cfListRef: mutable.Buffer[ColumnFamilyDescriptor] = mutable.Buffer()
+    optionsFilePathOpt.foreach { optionsFilePath =>
       try {
         org.rocksdb.OptionsUtil.loadOptionsFromFile(optionsFilePath, Env.getDefault, options, cfListRef.asJava)
         logger.info("successfully loaded rocksdb options from " + optionsFilePath)
@@ -41,10 +33,10 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
         }
       }
     }
-    options = options
-      .setCreateIfMissing(true)
-      .setCreateMissingColumnFamilies(true)
+    val newColumnFamilyDescriptors = (columnFamilies.map(_.getBytes) :+ RocksDB.DEFAULT_COLUMN_FAMILY).diff(cfListRef.toList.map(_.getName)).map(new ColumnFamilyDescriptor(_))
+    val columnFamilyDescriptors = cfListRef.toList ::: newColumnFamilyDescriptors
     logger.info("Opening RocksDB at " + dataDir.toAbsolutePath)
+    val columnFamilyHandles = new util.ArrayList[ColumnFamilyHandle]
     val db = RocksDB.open(
       options,
       dataDir.toAbsolutePath.toString,
@@ -100,7 +92,7 @@ class RocksDBIterator(it: RocksIterator, prefix: Option[String]) extends Iterato
   override def hasNext: Boolean = it.isValid && prefix.forall(it.key().startsWith(_))
 
   override def next: KeyValuePair[Array[Byte]] = {
-    val value = KeyValuePair(new String(it.key().map(_.toChar)) , it.value())
+    val value = KeyValuePair(new String(it.key().map(_.toChar)), it.value())
     it.next()
     value
   }
