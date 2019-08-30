@@ -21,7 +21,7 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
 
   val (db: RocksDB, columnFamilyHandles) = {
     RocksDB.loadLibrary()
-    val options = new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true)
+    val options = new DBOptions()
     val cfListRef: mutable.Buffer[ColumnFamilyDescriptor] = mutable.Buffer()
     optionsFilePathOpt.foreach { optionsFilePath =>
       try {
@@ -33,6 +33,7 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
         }
       }
     }
+    options.setCreateIfMissing(true).setCreateMissingColumnFamilies(true)
     val newColumnFamilyDescriptors = (columnFamilies.map(_.getBytes) :+ RocksDB.DEFAULT_COLUMN_FAMILY).diff(cfListRef.toList.map(_.getName)).map(new ColumnFamilyDescriptor(_))
     val columnFamilyDescriptors = cfListRef.toList ::: newColumnFamilyDescriptors
     logger.info("Opening RocksDB at " + dataDir.toAbsolutePath)
