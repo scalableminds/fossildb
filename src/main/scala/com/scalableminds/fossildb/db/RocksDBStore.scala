@@ -35,7 +35,7 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     }
     options.setCreateIfMissing(true).setCreateMissingColumnFamilies(true)
     val defaultColumnFamilyOptions = cfListRef.find(_.getName sameElements RocksDB.DEFAULT_COLUMN_FAMILY).map(_.getOptions).getOrElse(new ColumnFamilyOptions())
-    val newColumnFamilyDescriptors = columnFamilies.map(_.getBytes).diff(cfListRef.toList.map(_.getName)).map(new ColumnFamilyDescriptor(_, defaultColumnFamilyOptions))
+    val newColumnFamilyDescriptors = (columnFamilies.map(_.getBytes) :+ RocksDB.DEFAULT_COLUMN_FAMILY).diff(cfListRef.toList.map(_.getName)).map(new ColumnFamilyDescriptor(_, defaultColumnFamilyOptions))
     val columnFamilyDescriptors = cfListRef.toList ::: newColumnFamilyDescriptors
     logger.info("Opening RocksDB at " + dataDir.toAbsolutePath)
     val columnFamilyHandles = new util.ArrayList[ColumnFamilyHandle]
