@@ -34,7 +34,8 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
       }
     }
     options.setCreateIfMissing(true).setCreateMissingColumnFamilies(true)
-    val newColumnFamilyDescriptors = (columnFamilies.map(_.getBytes) :+ RocksDB.DEFAULT_COLUMN_FAMILY).diff(cfListRef.toList.map(_.getName)).map(new ColumnFamilyDescriptor(_))
+    val defaultColumnFamilyOptions = cfListRef.find(_.getName sameElements RocksDB.DEFAULT_COLUMN_FAMILY).map(_.getOptions).getOrElse(new ColumnFamilyOptions())
+    val newColumnFamilyDescriptors = columnFamilies.map(_.getBytes).diff(cfListRef.toList.map(_.getName)).map(new ColumnFamilyDescriptor(_, defaultColumnFamilyOptions))
     val columnFamilyDescriptors = cfListRef.toList ::: newColumnFamilyDescriptors
     logger.info("Opening RocksDB at " + dataDir.toAbsolutePath)
     val columnFamilyHandles = new util.ArrayList[ColumnFamilyHandle]
@@ -54,7 +55,7 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     if (!Files.exists(backupDir) || !Files.isDirectory(backupDir))
       Files.createDirectories(backupDir)
 
-    RocksDB.loadLibrary
+    RocksDB.loadLibrary()
     val backupEngine = BackupEngine.open(Env.getDefault, new BackupableDBOptions(backupDir.toString))
     backupEngine.createNewBackup(db)
     backupEngine.purgeOldBackups(1)
@@ -64,7 +65,7 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
   def restoreFromBackup(backupDir: Path) = {
     logger.info("Restoring from backup. RocksDB temporarily unavailable")
     close()
-    RocksDB.loadLibrary
+    RocksDB.loadLibrary()
     val backupEngine = BackupEngine.open(Env.getDefault, new BackupableDBOptions(backupDir.toString))
     backupEngine.restoreDbFromLatestBackup(dataDir.toString, dataDir.toString, new RestoreOptions(true))
     logger.info("Restoring from backup complete. Reopening RocksDB")
