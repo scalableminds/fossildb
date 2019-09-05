@@ -71,6 +71,13 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     logger.info("Restoring from backup complete. Reopening RocksDB")
   }
 
+  def compactAllData() = {
+    logger.info("Compacting all data")
+    RocksDB.loadLibrary()
+    db.compactRange()
+    logger.info("All data has been compacted to last level containing data")
+  }
+
   def close(): Future[Unit] = {
     logger.info("Closing RocksDB handle")
     Future.successful(db.close())
