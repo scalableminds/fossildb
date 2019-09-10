@@ -130,6 +130,13 @@ message RestoreFromBackupReply {
     optional string errorMessage = 2;
 }
 
+message CompactAllDataRequest {}
+
+message CompactAllDataReply {
+    required bool success = 1;
+    optional string errorMessage = 2;
+}
+
 
 service FossilDB {
     rpc Health (HealthRequest) returns (HealthReply) {}
@@ -143,4 +150,5 @@ service FossilDB {
     rpc ListVersions (ListVersionsRequest) returns (ListVersionsReply) {}
     rpc Backup (BackupRequest) returns (BackupReply) {}
     rpc RestoreFromBackup (RestoreFromBackupRequest) returns (RestoreFromBackupReply) {}
+    rpc CompactAllData (CompactAllDataRequest) returns (CompactAllDataReply) {}
 }
