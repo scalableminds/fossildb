@@ -90,6 +90,10 @@ class FossilDBGrpcImpl(storeManager: StoreManager)
     RestoreFromBackupReply(true)
   } {errorMsg => RestoreFromBackupReply(false, errorMsg)}
 
+  override def compactAllData(req: CompactAllDataRequest) = withExceptionHandler(req) {
+    storeManager.compactAllData
+    CompactAllDataReply(true)
+  } {errorMsg => CompactAllDataReply(false, errorMsg)}
 
   private def withExceptionHandler [T, R <: GeneratedMessage](request: R)(tryBlock: => T)(onErrorBlock: Option[String] => T): Future[T] = {
     try {

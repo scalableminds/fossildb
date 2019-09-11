@@ -66,6 +66,14 @@ class StoreManager(dataDir: Path, backupDir: Path, columnFamilies: List[String],
     }
   }
 
+  def compactAllData = {
+    failDuringBackup
+    failDuringRestore
+    try {
+      rocksDBManager.get.compactAllData()
+    }
+  }
+
   def close = {
     rocksDBManager.map(_.close)
   }
