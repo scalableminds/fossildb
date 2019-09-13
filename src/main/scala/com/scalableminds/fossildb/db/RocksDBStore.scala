@@ -79,7 +79,8 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     logger.info("Compacting all data")
     RocksDB.loadLibrary()
     //db.compactRange()
-    writeAllSSts()
+    //writeAllSSts()
+    ingestFiles()
     logger.info("All data has been compacted to last level containing data")
   }
 
@@ -88,9 +89,18 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     Future.successful(db.close())
   }
 
+  def ingestFiles() = {
+    val ifo = new IngestExternalFileOptions()
+    ifo.setMoveFiles(true)
+    val asd: mutable.Buffer[String] = mutable.Buffer("toIngest/test.sst")
+    val handle = columnFamilyHandles("skeletons")
+    db.ingestExternalFile(handle, asd.asJava, ifo)
+  }
+
   def writeAllSSts() = {
-    val (dbOptions, columnFamilyDescriptors) = loadOptions("config/newOptions.ini")
+    val (dbOptions, columnFamilyDescriptors) = loadOptions("config/options.ini")
     val descriptor = columnFamilyDescriptors.find(_.getName sameElements "skeletons".getBytes)
+    println(descriptor.get.getOptions.targetFileSizeBase())
     val options = new Options(dbOptions, descriptor.get.getOptions)
     val writer = new SstFileWriter(new EnvOptions(), options)
     writer.open("data/test.sst")
