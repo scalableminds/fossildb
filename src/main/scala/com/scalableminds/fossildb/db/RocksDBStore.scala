@@ -21,6 +21,10 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
 
   val (db: RocksDB, columnFamilyHandles) = {
     RocksDB.loadLibrary()
+    val columnOptions = new ColumnFamilyOptions()
+      .setArenaBlockSize(4 * 1024 * 1024)               // 4MB
+      .setTargetFileSizeBase(1024 * 1024 * 1024)        // 1GB
+      .setMaxBytesForLevelBase(10 * 1024 * 1024 * 1024) // 10GB
     val options = new DBOptions()
     val cfListRef: mutable.Buffer[ColumnFamilyDescriptor] = mutable.Buffer()
     optionsFilePathOpt.foreach { optionsFilePath =>
@@ -34,7 +38,7 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
       }
     }
     options.setCreateIfMissing(true).setCreateMissingColumnFamilies(true)
-    val defaultColumnFamilyOptions = cfListRef.find(_.getName sameElements RocksDB.DEFAULT_COLUMN_FAMILY).map(_.getOptions).getOrElse(new ColumnFamilyOptions())
+    val defaultColumnFamilyOptions = cfListRef.find(_.getName sameElements RocksDB.DEFAULT_COLUMN_FAMILY).map(_.getOptions).getOrElse(columnOptions)
     val newColumnFamilyDescriptors = (columnFamilies.map(_.getBytes) :+ RocksDB.DEFAULT_COLUMN_FAMILY).diff(cfListRef.toList.map(_.getName)).map(new ColumnFamilyDescriptor(_, defaultColumnFamilyOptions))
     val columnFamilyDescriptors = cfListRef.toList ::: newColumnFamilyDescriptors
     logger.info("Opening RocksDB at " + dataDir.toAbsolutePath)
@@ -85,16 +89,36 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
   }
 
   def writeAllSSts() = {
-    val dbOptions = new DBOptions().setCreateIfMissing(true)
-    val envOptions = new EnvOptions()
-    val options = new Options(dbOptions, new ColumnFamilyOptions())
-    val writer = new SstFileWriter(envOptions, options)
+    val (dbOptions, columnFamilyDescriptors) = loadOptions("config/newOptions.ini")
+    val descriptor = columnFamilyDescriptors.find(_.getName sameElements "skeletons".getBytes)
+    val options = new Options(dbOptions, descriptor.get.getOptions)
+    val writer = new SstFileWriter(new EnvOptions(), options)
     writer.open("data/test.sst")
-    val store = getStoreForColumnFamily(columnFamilies.head)
+    val store = getStoreForColumnFamily("skeletons")
     val it = store.get.scan("", None)
     it.foreach(el => writer.put(el.key.getBytes, el.value))
     writer.finish()
     //db.ingestExternalFile()
+  }
+
+  def loadOptions(optionFilepath: String) = {
+    val options = new DBOptions()
+    val cfListRef: mutable.Buffer[ColumnFamilyDescriptor] = mutable.Buffer()
+    optionsFilePathOpt.foreach { optionsFilePath =>
+      try {
+        org.rocksdb.OptionsUtil.loadOptionsFromFile(optionsFilePath, Env.getDefault, options, cfListRef.asJava)
+        logger.info("successfully loaded rocksdb options from " + optionsFilePath)
+      } catch {
+        case e: Exception => {
+          throw new Exception("Failed to load rocksdb options from file " + optionsFilePath, e)
+        }
+      }
+    }
+    options.setCreateIfMissing(true).setCreateMissingColumnFamilies(true)
+    val defaultColumnFamilyOptions = cfListRef.find(_.getName sameElements RocksDB.DEFAULT_COLUMN_FAMILY).map(_.getOptions).getOrElse(new ColumnFamilyOptions())
+    val newColumnFamilyDescriptors = (columnFamilies.map(_.getBytes) :+ RocksDB.DEFAULT_COLUMN_FAMILY).diff(cfListRef.toList.map(_.getName)).map(new ColumnFamilyDescriptor(_, defaultColumnFamilyOptions))
+    val columnFamilyDescriptors = cfListRef.toList ::: newColumnFamilyDescriptors
+    (options, columnFamilyDescriptors)
   }
 }
 
