@@ -78,9 +78,9 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
   def compactAllData() = {
     logger.info("Compacting all data")
     RocksDB.loadLibrary()
-    //db.compactRange()
+    db.compactRange()
     //writeAllSSts()
-    ingestFiles()
+    //ingestFiles()
     logger.info("All data has been compacted to last level containing data")
   }
 
