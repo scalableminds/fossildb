@@ -74,13 +74,27 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
   def compactAllData() = {
     logger.info("Compacting all data")
     RocksDB.loadLibrary()
-    db.compactRange()
+    //db.compactRange()
+    writeAllSSts()
     logger.info("All data has been compacted to last level containing data")
   }
 
   def close(): Future[Unit] = {
     logger.info("Closing RocksDB handle")
     Future.successful(db.close())
+  }
+
+  def writeAllSSts() = {
+    val dbOptions = new DBOptions().setCreateIfMissing(true)
+    val envOptions = new EnvOptions()
+    val options = new Options(dbOptions, new ColumnFamilyOptions())
+    val writer = new SstFileWriter(envOptions, options)
+    writer.open("data/test.sst")
+    val store = getStoreForColumnFamily(columnFamilies.head)
+    val it = store.get.scan("", None)
+    it.foreach(el => writer.put(el.key.getBytes, el.value))
+    writer.finish()
+    //db.ingestExternalFile()
   }
 }
 
