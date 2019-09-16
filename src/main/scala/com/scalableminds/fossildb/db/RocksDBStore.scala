@@ -3,6 +3,7 @@
  */
 package com.scalableminds.fossildb.db
 
+import java.io.File
 import java.nio.file.{Files, Path, Paths}
 import java.util
 
@@ -109,19 +110,24 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     val writer = new SstFileWriter(new EnvOptions(), options)
     val store = getStoreForColumnFamily("skeletons")
     val it = store.get.scan("", None)
-    it.take(100000).zipWithIndex.foreach { case (seq, idx) =>
-      writer.open(s"data/test${idx}.sst")
-      val el = seq
+    var idx = 0
+    writer.open(s"data/test${idx}.sst")
+    it.take(100000).foreach { el =>
+      if (new File(s"data/test${idx}.sst").length() > options.targetFileSizeBase()) {
+        writer.finish()
+        idx += 1
+        writer.open(s"data/test${idx}.sst")
+      }
       writer.put(el.key.getBytes, el.value)
-      writer.finish()
     }
+    writer.finish()
   }
 
   def writeToNewDB() = {
     val manager = new RocksDBManager(Paths.get("data_new"), columnFamilies, Some("config/options.ini"))
     val skeletonHandle = manager.columnFamilyHandles("skeletons")
     val it = getStoreForColumnFamily("skeletons").get.scan("", None).take(100000)
-    it.foreach {el => manager.db.put(skeletonHandle, el.key.getBytes, el.value)}
+    it.foreach { el => manager.db.put(skeletonHandle, el.key.getBytes, el.value) }
   }
 
   def loadOptions(optionFilepath: String) = {
