@@ -83,8 +83,7 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
       case 0 => db.compactRange()
       case 1 => writeAllSSts()
       case 2 => ingestFiles()
-      case 3 => db.compactRange(false, -1, 0)
-      case 4 => writeToNewDB()
+      case 3 => writeToNewDB()
     }
     logger.info("All data has been compacted to last level containing data")
   }
@@ -111,12 +110,12 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     val store = getStoreForColumnFamily("skeletons")
     val it = store.get.scan("", None)
     var idx = 0
-    writer.open(s"data/test${idx}.sst")
-    it.take(100000).foreach { el =>
-      if (new File(s"data/test${idx}.sst").length() > options.targetFileSizeBase()) {
+    writer.open(s"data/export/test${idx}.sst")
+    it.foreach { el =>
+      if (new File(s"data/export/test${idx}.sst").length() + el.key.getBytes.length + el.value.length > options.targetFileSizeBase()) {
         writer.finish()
         idx += 1
-        writer.open(s"data/test${idx}.sst")
+        writer.open(s"data/export/test${idx}.sst")
       }
       writer.put(el.key.getBytes, el.value)
     }
@@ -126,7 +125,7 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
   def writeToNewDB() = {
     val manager = new RocksDBManager(Paths.get("data_new"), columnFamilies, Some("config/options.ini"))
     val skeletonHandle = manager.columnFamilyHandles("skeletons")
-    val it = getStoreForColumnFamily("skeletons").get.scan("", None).take(100000)
+    val it = getStoreForColumnFamily("skeletons").get.scan("", None)
     it.foreach { el => manager.db.put(skeletonHandle, el.key.getBytes, el.value) }
   }
 
