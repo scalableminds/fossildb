@@ -22,8 +22,8 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
   val (db: RocksDB, columnFamilyHandles) = {
     RocksDB.loadLibrary()
     val columnOptions = new ColumnFamilyOptions()
-      .setArenaBlockSize(4 * 1024 * 1024)               // 4MB
-      .setTargetFileSizeBase(1024 * 1024 * 1024)        // 1GB
+      .setArenaBlockSize(4 * 1024 * 1024) // 4MB
+      .setTargetFileSizeBase(1024 * 1024 * 1024) // 1GB
       .setMaxBytesForLevelBase(10 * 1024 * 1024 * 1024) // 10GB
     val options = new DBOptions()
     val cfListRef: mutable.Buffer[ColumnFamilyDescriptor] = mutable.Buffer()
@@ -75,12 +75,14 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     logger.info("Restoring from backup complete. Reopening RocksDB")
   }
 
-  def compactAllData() = {
+  def compactAllData(idx: Option[Int]) = {
     logger.info("Compacting all data")
     RocksDB.loadLibrary()
-    db.compactRange()
-    //writeAllSSts()
-    //ingestFiles()
+    idx.getOrElse(0) match {
+      case 0 => db.compactRange()
+      case 1 => writeAllSSts()
+      case 2 => ingestFiles()
+    }
     logger.info("All data has been compacted to last level containing data")
   }
 
@@ -92,7 +94,8 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
   def ingestFiles() = {
     val ifo = new IngestExternalFileOptions()
     ifo.setMoveFiles(true)
-    val asd: mutable.Buffer[String] = mutable.Buffer("toIngest/test.sst")
+    val fileNames = (1 until 10).map(num => s"toIngest/test${num}.sst")
+    val asd: mutable.Buffer[String] = mutable.Buffer(fileNames)
     val handle = columnFamilyHandles("skeletons")
     db.ingestExternalFile(handle, asd.asJava, ifo)
   }
@@ -103,12 +106,13 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     println(descriptor.get.getOptions.targetFileSizeBase())
     val options = new Options(dbOptions, descriptor.get.getOptions)
     val writer = new SstFileWriter(new EnvOptions(), options)
-    writer.open("data/test.sst")
     val store = getStoreForColumnFamily("skeletons")
     val it = store.get.scan("", None)
-    it.foreach(el => writer.put(el.key.getBytes, el.value))
-    writer.finish()
-    //db.ingestExternalFile()
+    it.take(10000).grouped(1000).zipWithIndex.foreach { case (seq, idx) =>
+      writer.open(s"data/test${idx}.sst")
+      seq.foreach(el => writer.put(el.key.getBytes, el.value))
+      writer.finish()
+    }
   }
 
   def loadOptions(optionFilepath: String) = {

@@ -130,7 +130,7 @@ message RestoreFromBackupReply {
     optional string errorMessage = 2;
 }
 
-message CompactAllDataRequest {}
+message CompactAllDataRequest {optional uint32 type = 1;}
 
 message CompactAllDataReply {
     required bool success = 1;
