@@ -94,7 +94,7 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
   def ingestFiles() = {
     val ifo = new IngestExternalFileOptions()
     ifo.setMoveFiles(true)
-    val fileNames = (1 until 10).map(num => s"toIngest/test${num}.sst")
+    val fileNames = (0 until 100000).map(num => s"toIngest/test${num}.sst")
     val asd: mutable.Buffer[String] = fileNames.toBuffer
     val handle = columnFamilyHandles("skeletons")
     db.ingestExternalFile(handle, asd.asJava, ifo)
@@ -108,9 +108,10 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     val writer = new SstFileWriter(new EnvOptions(), options)
     val store = getStoreForColumnFamily("skeletons")
     val it = store.get.scan("", None)
-    it.take(10000).grouped(1000).zipWithIndex.foreach { case (seq, idx) =>
+    it.take(100000).zipWithIndex.foreach { case (seq, idx) =>
       writer.open(s"data/test${idx}.sst")
-      seq.foreach(el => writer.put(el.key.getBytes, el.value))
+      val el = seq
+      writer.put(el.key.getBytes, el.value)
       writer.finish()
     }
   }
