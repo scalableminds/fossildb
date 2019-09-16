@@ -3,7 +3,7 @@
  */
 package com.scalableminds.fossildb.db
 
-import java.nio.file.{Files, Path}
+import java.nio.file.{Files, Path, Paths}
 import java.util
 
 import com.typesafe.scalalogging.LazyLogging
@@ -83,6 +83,7 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
       case 1 => writeAllSSts()
       case 2 => ingestFiles()
       case 3 => db.compactRange(false, -1, 0)
+      case 4 => writeToNewDB()
     }
     logger.info("All data has been compacted to last level containing data")
   }
@@ -114,6 +115,13 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
       writer.put(el.key.getBytes, el.value)
       writer.finish()
     }
+  }
+
+  def writeToNewDB() = {
+    val manager = new RocksDBManager(Paths.get("data_new"), columnFamilies, Some("config/options.ini"))
+    val skeletonHandle = manager.columnFamilyHandles("skeletons")
+    val it = getStoreForColumnFamily("skeletons").get.scan("", None).take(100000)
+    it.foreach {el => manager.db.put(skeletonHandle, el.key.getBytes, el.value)}
   }
 
   def loadOptions(optionFilepath: String) = {
