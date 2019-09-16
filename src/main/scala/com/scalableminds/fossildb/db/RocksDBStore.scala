@@ -82,6 +82,7 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
       case 0 => db.compactRange()
       case 1 => writeAllSSts()
       case 2 => ingestFiles()
+      case 3 => db.compactRange(false, -1, 0)
     }
     logger.info("All data has been compacted to last level containing data")
   }
@@ -103,7 +104,6 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
   def writeAllSSts() = {
     val (dbOptions, columnFamilyDescriptors) = loadOptions("config/options.ini")
     val descriptor = columnFamilyDescriptors.find(_.getName sameElements "skeletons".getBytes)
-    println(descriptor.get.getOptions.targetFileSizeBase())
     val options = new Options(dbOptions, descriptor.get.getOptions)
     val writer = new SstFileWriter(new EnvOptions(), options)
     val store = getStoreForColumnFamily("skeletons")
