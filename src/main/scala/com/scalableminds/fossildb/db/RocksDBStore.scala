@@ -95,7 +95,7 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     val ifo = new IngestExternalFileOptions()
     ifo.setMoveFiles(true)
     val fileNames = (1 until 10).map(num => s"toIngest/test${num}.sst")
-    val asd: mutable.Buffer[String] = mutable.Buffer(fileNames)
+    val asd: mutable.Buffer[String] = fileNames.toBuffer
     val handle = columnFamilyHandles("skeletons")
     db.ingestExternalFile(handle, asd.asJava, ifo)
   }
