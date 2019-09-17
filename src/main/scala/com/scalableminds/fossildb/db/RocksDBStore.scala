@@ -76,77 +76,29 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     logger.info("Restoring from backup complete. Reopening RocksDB")
   }
 
-  def compactAllData(idx: Option[Int]) = {
+  def compactAllData() = {
     logger.info("Compacting all data")
     RocksDB.loadLibrary()
-    idx.getOrElse(0) match {
-      case 0 => db.compactRange()
-      case 1 => writeAllSSts()
-      case 2 => ingestFiles()
-      case 3 => writeToNewDB()
-    }
+    db.compactRange()
     logger.info("All data has been compacted to last level containing data")
+  }
+
+  def exportToNewDB(newDataDir: Path, newOptionsFilePathOpt: Option[String]) = {
+    RocksDB.loadLibrary()
+    logger.info(s"Exporting to new DB at ${newDataDir.toString} with options file ${newOptionsFilePathOpt}")
+    val newManager = new RocksDBManager(newDataDir, columnFamilies, newOptionsFilePathOpt)
+    newManager.columnFamilyHandles.foreach { case (name, handle) =>
+      val dataIterator = getStoreForColumnFamily(name).get.scan("", None)
+      dataIterator.foreach(el => newManager.db.put(handle, el.key.getBytes, el.value))
+    }
+    logger.info("Writing data completed. Start compaction")
+    newManager.db.compactRange()
+    logger.info("Compaction finished")
   }
 
   def close(): Future[Unit] = {
     logger.info("Closing RocksDB handle")
     Future.successful(db.close())
-  }
-
-  def ingestFiles() = {
-    val ifo = new IngestExternalFileOptions()
-    ifo.setMoveFiles(true)
-    val fileNames = new File("toIngest").listFiles.filter(_.isFile).filter(_.getName.endsWith("sst")).map(_.getPath)
-    val asd: mutable.Buffer[String] = fileNames.toBuffer
-    val handle = columnFamilyHandles("skeletons")
-    db.ingestExternalFile(handle, asd.asJava, ifo)
-  }
-
-  def writeAllSSts() = {
-    val (dbOptions, columnFamilyDescriptors) = loadOptions("config/options.ini")
-    val descriptor = columnFamilyDescriptors.find(_.getName sameElements "skeletons".getBytes)
-    val options = new Options(dbOptions, descriptor.get.getOptions)
-    val writer = new SstFileWriter(new EnvOptions(), options)
-    val store = getStoreForColumnFamily("skeletons")
-    val it = store.get.scan("", None)
-    var idx = 0
-    writer.open(s"data/export/test${idx}.sst")
-    it.foreach { el =>
-      if (new File(s"data/export/test${idx}.sst").length() + el.key.getBytes.length + el.value.length > options.targetFileSizeBase()) {
-        writer.finish()
-        idx += 1
-        writer.open(s"data/export/test${idx}.sst")
-      }
-      writer.put(el.key.getBytes, el.value)
-    }
-    writer.finish()
-  }
-
-  def writeToNewDB() = {
-    val manager = new RocksDBManager(Paths.get("data_new"), columnFamilies, Some("config/options.ini"))
-    val skeletonHandle = manager.columnFamilyHandles("skeletons")
-    val it = getStoreForColumnFamily("skeletons").get.scan("", None)
-    it.foreach { el => manager.db.put(skeletonHandle, el.key.getBytes, el.value) }
-  }
-
-  def loadOptions(optionFilepath: String) = {
-    val options = new DBOptions()
-    val cfListRef: mutable.Buffer[ColumnFamilyDescriptor] = mutable.Buffer()
-    optionsFilePathOpt.foreach { optionsFilePath =>
-      try {
-        org.rocksdb.OptionsUtil.loadOptionsFromFile(optionsFilePath, Env.getDefault, options, cfListRef.asJava)
-        logger.info("successfully loaded rocksdb options from " + optionsFilePath)
-      } catch {
-        case e: Exception => {
-          throw new Exception("Failed to load rocksdb options from file " + optionsFilePath, e)
-        }
-      }
-    }
-    options.setCreateIfMissing(true).setCreateMissingColumnFamilies(true)
-    val defaultColumnFamilyOptions = cfListRef.find(_.getName sameElements RocksDB.DEFAULT_COLUMN_FAMILY).map(_.getOptions).getOrElse(new ColumnFamilyOptions())
-    val newColumnFamilyDescriptors = (columnFamilies.map(_.getBytes) :+ RocksDB.DEFAULT_COLUMN_FAMILY).diff(cfListRef.toList.map(_.getName)).map(new ColumnFamilyDescriptor(_, defaultColumnFamilyOptions))
-    val columnFamilyDescriptors = cfListRef.toList ::: newColumnFamilyDescriptors
-    (options, columnFamilyDescriptors)
   }
 }
 

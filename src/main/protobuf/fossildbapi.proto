@@ -130,9 +130,19 @@ message RestoreFromBackupReply {
     optional string errorMessage = 2;
 }
 
-message CompactAllDataRequest {optional uint32 type = 1;}
+message CompactAllDataRequest {}
 
 message CompactAllDataReply {
+    required bool success = 1;
+    optional string errorMessage = 2;
+}
+
+message ExportDBRequest {
+    required string newDataDir = 1;
+    optional string optionsFile = 2;
+}
+
+message ExportDBReply {
     required bool success = 1;
     optional string errorMessage = 2;
 }
@@ -151,4 +161,5 @@ service FossilDB {
     rpc Backup (BackupRequest) returns (BackupReply) {}
     rpc RestoreFromBackup (RestoreFromBackupRequest) returns (RestoreFromBackupReply) {}
     rpc CompactAllData (CompactAllDataRequest) returns (CompactAllDataReply) {}
+    rpc ExportDB (ExportDBRequest) returns (ExportDBReply) {}
 }
