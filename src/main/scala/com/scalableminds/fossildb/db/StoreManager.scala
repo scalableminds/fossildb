@@ -3,7 +3,7 @@
  */
 package com.scalableminds.fossildb.db
 
-import java.nio.file.Path
+import java.nio.file.{Path, Paths}
 import java.util.concurrent.atomic.AtomicBoolean
 
 class StoreManager(dataDir: Path, backupDir: Path, columnFamilies: List[String], rocksdbOptions: Option[String]) {
@@ -66,11 +66,18 @@ class StoreManager(dataDir: Path, backupDir: Path, columnFamilies: List[String],
     }
   }
 
-  def compactAllData = {
+  def compactAllData() = {
     failDuringBackup
     failDuringRestore
     try {
       rocksDBManager.get.compactAllData()
+    }
+  }
+
+  def exportDB(newDataDir: String, newOptionsFilePathOpt: Option[String]) = {
+    failDuringRestore
+    try {
+      rocksDBManager.get.exportToNewDB(Paths.get(newDataDir), newOptionsFilePathOpt)
     }
   }
 
