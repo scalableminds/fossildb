@@ -69,16 +69,12 @@ class StoreManager(dataDir: Path, backupDir: Path, columnFamilies: List[String],
   def compactAllData() = {
     failDuringBackup
     failDuringRestore
-    try {
-      rocksDBManager.get.compactAllData()
-    }
+    rocksDBManager.get.compactAllData()
   }
 
   def exportDB(newDataDir: String, newOptionsFilePathOpt: Option[String]) = {
     failDuringRestore
-    try {
-      rocksDBManager.get.exportToNewDB(Paths.get(newDataDir), newOptionsFilePathOpt)
-    }
+    rocksDBManager.get.exportToNewDB(Paths.get(newDataDir), newOptionsFilePathOpt)
   }
 
   def close = {

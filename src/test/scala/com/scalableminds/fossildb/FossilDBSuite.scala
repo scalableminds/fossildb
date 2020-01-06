@@ -162,6 +162,18 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers {
     assert(reply2.keys.length == 1)
   }
 
+  it should "return all keys despite lexicographic similarity" in {
+    client.put(PutRequest(collectionA, "abb/1/1-[1,1,1]", Some(1), testData1))
+    client.put(PutRequest(collectionA, "abc/1/1481800838-[3600,2717,121]", Some(123), testData2))
+    client.put(PutRequest(collectionA, "abc/1/1481800839-[3601,2717,121]", Some(123), testData3))
+    client.put(PutRequest(collectionA, "abc/1/1481800839-[3601,2717,121]", Some(125), testData3))
+    client.put(PutRequest(collectionA, "abc/1/1481800839-[3601,2717,121]", Some(128), testData3))
+    client.put(PutRequest(collectionA, "abc/1/1481800846-[3602,2717,121]", Some(123), testData2))
+
+    val reply = client.listKeys(ListKeysRequest(collectionA, None, Some("abb")))
+    assert(reply.keys.length == 3)
+  }
+
   "GetMultipleVersions" should "return all versions in decending order if called without limits" in {
     client.put(PutRequest(collectionA, aKey, Some(0), testData1))
     client.put(PutRequest(collectionA, aKey, Some(1), testData2))
