@@ -112,6 +112,10 @@ class RocksDBKeyIterator(it: RocksIterator, prefix: Option[String]) extends Iter
     key
   }
 
+  def peek: String = {
+    new String(it.key().map(_.toChar))
+  }
+
 }
 
 class RocksDBIterator(it: RocksIterator, prefix: Option[String]) extends Iterator[KeyValuePair[Array[Byte]]] {
@@ -138,7 +142,7 @@ class RocksDBStore(db: RocksDB, handle: ColumnFamilyHandle) {
     new RocksDBIterator(it, prefix)
   }
 
-  def scanKeysOnly(key: String, prefix: Option[String]): Iterator[String] = {
+  def scanKeysOnly(key: String, prefix: Option[String]): RocksDBKeyIterator = {
     val it = db.newIterator(handle)
     it.seek(key.getBytes())
     new RocksDBKeyIterator(it, prefix)

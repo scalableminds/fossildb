@@ -58,6 +58,12 @@ class VersionFilterIterator[T](it: Iterator[KeyValuePair[T]], version: Option[Lo
 
 class KeyOnlyIterator[T](underlying: RocksDBStore, startAfterKey: Option[String]) extends Iterator[String] {
 
+  /*
+     Note that seek in the underlying iterators either hits precisely or goes to the
+     lexicographically *next* key. To achieve correct behavior with startAfterKey,
+     we have to advance once in case of the exact hit.
+   */
+
   private var currentKey: Option[String] = startAfterKey
 
   private def compositeKeyFor(keyOpt: Option[String]) = keyOpt match {
@@ -67,13 +73,13 @@ class KeyOnlyIterator[T](underlying: RocksDBStore, startAfterKey: Option[String]
 
   override def hasNext: Boolean = {
     val it = underlying.scanKeysOnly(compositeKeyFor(currentKey), None)
-    if (it.hasNext && currentKey.isDefined) it.next
+    if (it.hasNext && currentKey.isDefined && currentKey.contains(VersionedKey(it.peek).get.key)) it.next
     it.hasNext
   }
 
   override def next(): String = {
     val it = underlying.scanKeysOnly(compositeKeyFor(currentKey), None)
-    if (currentKey.isDefined) it.next
+    if (it.hasNext && currentKey.isDefined && currentKey.contains(VersionedKey(it.peek).get.key)) it.next
     val nextKey = VersionedKey(it.next).get.key
     currentKey = Some(nextKey)
     nextKey
