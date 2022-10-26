@@ -2,7 +2,7 @@ version: 2
 jobs:
   build_and_push:
     machine:
-      image: circleci/classic:latest
+      image: ubuntu-2004:202111-02
     environment:
       SBT_VERSION_TAG: sbt-0.13.15_mongo-3.2.17_node-8.x_jdk-8
       USER_UID: 1001
