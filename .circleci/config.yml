@@ -5,8 +5,8 @@ jobs:
       image: ubuntu-2004:202111-02
     environment:
       SBT_VERSION_TAG: sbt-0.13.15_mongo-3.2.17_node-8.x_jdk-8
-      USER_UID: 1000
-      USER_GID: 1000
+      USER_UID: 1001
+      USER_GID: 1001
       TARGET_DIR: target/scala-2.12
     steps:
       - checkout
@@ -18,7 +18,7 @@ jobs:
           key: cache-{{ .Branch }}
       - run:
           name: Build server
-          command: docker-compose run -T -e CI=$CI sbt sbt assembly
+          command: docker-compose run -e CI=$CI sbt sbt assembly
       - run:
           name: Get FossilDB version
           command: docker-compose run sbt java -jar $TARGET_DIR/fossildb.jar --version > $TARGET_DIR/version
@@ -29,6 +29,42 @@ jobs:
             - "~/.ivy2"
             - "~/.sbt"
 
+      - run:
+          name: Build server docker image
+          command: |
+            docker build \
+            -t scalableminds/fossildb:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} \
+            -t scalableminds/fossildb:${CIRCLE_BRANCH} \
+            .
+      - run:
+          name: Build client docker image
+          command: |
+            docker build \
+            -f client/Dockerfile \
+            -t scalableminds/fossildb-client:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} \
+            -t scalableminds/fossildb-client:${CIRCLE_BRANCH} \
+            .
+
+      - run:
+          name: Smoke test
+          command: |
+            FOSSILDB_TAG=${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} \
+            docker-compose up -d fossildb
+            sleep 1
+            FOSSILDB_TAG=${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} \
+            FOSSILDB_CLIENT_TAG=${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} \
+            docker-compose run fossildb-health-check
+            docker-compose down
+
+      - run:
+          name: Push to Dockerhub
+          command: |
+            echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
+            docker push scalableminds/fossildb:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM}
+            docker push scalableminds/fossildb:${CIRCLE_BRANCH}
+            docker push scalableminds/fossildb-client:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM}
+            docker push scalableminds/fossildb-client:${CIRCLE_BRANCH}
+            docker logout
 
       - run:
           name: Show version
@@ -36,11 +72,12 @@ jobs:
       - run:
           name: Release JAR on Github
           command: |
-            sudo apt-get update
-            sudo apt-get install -y golang-1.10-go
-            go get github.com/tcnksm/ghr
-
-            ghr
+            if [ "${CIRCLE_BRANCH}" == "master" ]; then
+                wget https://github.com/cli/cli/releases/download/v2.18.1/gh_2.18.1_linux_amd64.deb
+                sudo apt install ./gh_2.18.1_linux_amd64.deb
+                TAG_NAME="$(cat $TARGET_DIR/version | tr -d [:space:])"
+                gh release create $TAG_NAME -t "$TAG_NAME $(git log -1 --pretty=%B)" -R scalableminds/fossildb --target $(git rev-parse HEAD) -n "Executable JAR of __FossilDB__" $TARGET_DIR/fossildb.jar
+            fi
 
 workflows:
   version: 2
