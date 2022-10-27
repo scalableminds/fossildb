@@ -3,13 +3,11 @@
  */
 package com.scalableminds.fossildb.db
 
-import java.io.File
-import java.nio.file.{Files, Path, Paths}
-import java.util
-
 import com.typesafe.scalalogging.LazyLogging
 import org.rocksdb._
 
+import java.nio.file.{Files, Path}
+import java.util
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 import scala.concurrent.Future
@@ -23,9 +21,9 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
   val (db: RocksDB, columnFamilyHandles) = {
     RocksDB.loadLibrary()
     val columnOptions = new ColumnFamilyOptions()
-      .setArenaBlockSize(4 * 1024 * 1024) // 4MB
-      .setTargetFileSizeBase(1024 * 1024 * 1024) // 1GB
-      .setMaxBytesForLevelBase(10 * 1024 * 1024 * 1024) // 10GB
+      .setArenaBlockSize(4L * 1024 * 1024) // 4MB
+      .setTargetFileSizeBase(1024L * 1024 * 1024) // 1GB
+      .setMaxBytesForLevelBase(10L * 1024 * 1024 * 1024) // 10GB
     val options = new DBOptions()
     val cfListRef: mutable.Buffer[ColumnFamilyDescriptor] = mutable.Buffer()
     optionsFilePathOpt.foreach { optionsFilePath =>
