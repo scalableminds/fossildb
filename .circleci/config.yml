@@ -73,19 +73,10 @@ jobs:
           name: Release JAR on Github
           command: |
             if [ "${CIRCLE_BRANCH}" == "master" ]; then
-              sudo add-apt-repository ppa:gophers/archive
-              sudo apt-get update
-              sudo apt-get install -y golang-1.10-go
-              go get github.com/tcnksm/ghr
-
-              ghr \
-                -t $GITHUB_TOKEN \
-                -u scalableminds \
-                -r fossildb \
-                -c $(git rev-parse HEAD) \
-                -b "Executable JAR of __FossilDB__" \
-                $(cat $TARGET_DIR/version | tr -d [:space:]) \
-                $TARGET_DIR/fossildb.jar
+                wget https://github.com/cli/cli/releases/download/v2.18.1/gh_2.18.1_linux_amd64.deb
+                sudo apt install ./gh_2.18.1_linux_amd64.deb
+                TAG_NAME="$(cat $TARGET_DIR/version | tr -d [:space:])"
+                gh release create $TAG_NAME -t "$TAG_NAME $(git log -1 --pretty=%B)" -R scalableminds/fossildb --target $(git rev-parse HEAD) -n "Executable JAR of __FossilDB__" $TARGET_DIR/fossildb.jar
             fi
 
 workflows:
