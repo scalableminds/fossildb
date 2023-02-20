@@ -1,6 +1,3 @@
-/*
- * Copyright (C) 2011-2017 scalable minds UG (haftungsbeschränkt) & Co. KG. <http://scm.io>
- */
 package com.scalableminds.fossildb
 
 import java.io.File
@@ -16,29 +13,28 @@ import org.scalatest.{BeforeAndAfterEach, FlatSpec}
 import scala.concurrent.ExecutionContext
 
 class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers {
-  val testTempDir = "testData1"
-  val dataDir = Paths.get(testTempDir, "data")
-  val backupDir = Paths.get(testTempDir, "backup")
+  private val testTempDir = "testData1"
+  private val dataDir = Paths.get(testTempDir, "data")
+  private val backupDir = Paths.get(testTempDir, "backup")
 
-  val port = 21505
-  var serverOpt: Option[FossilDBServer] = None
-  val channel = NettyChannelBuilder.forAddress("127.0.0.1", port).maxInboundMessageSize(Int.MaxValue).usePlaintext().build
-  val client = FossilDBGrpc.blockingStub(channel)
-  val healthClient = HealthGrpc.newBlockingStub(channel)
+  private val port = 21505
+  private var serverOpt: Option[FossilDBServer] = None
+  private val channel = NettyChannelBuilder.forAddress("127.0.0.1", port).maxInboundMessageSize(Int.MaxValue).usePlaintext().build
+  private val client = FossilDBGrpc.blockingStub(channel)
+  private val healthClient = HealthGrpc.newBlockingStub(channel)
+  private val collectionA = "collectionA"
+  private val collectionB = "collectionB"
+  private val collectionC = "collectionC"
 
-  val collectionA = "collectionA"
-  val collectionB = "collectionB"
-  val collectionC = "collectionC"
+  private val testData1 = ByteString.copyFromUtf8("testData1")
+  private val testData2 = ByteString.copyFromUtf8("testData2")
+  private val testData3 = ByteString.copyFromUtf8("testData3")
 
-  val testData1 = ByteString.copyFromUtf8("testData1")
-  val testData2 = ByteString.copyFromUtf8("testData2")
-  val testData3 = ByteString.copyFromUtf8("testData3")
+  private val aKey = "aKey"
+  private val anotherKey = "anotherKey"
+  private val aThirdKey = "aThirdKey"
 
-  val aKey = "aKey"
-  val anotherKey = "anotherKey"
-  val aThirdKey = "aThirdKey"
-
-  override def beforeEach = {
+  override def beforeEach: Unit = {
     deleteRecursively(new File(testTempDir))
     new File(testTempDir).mkdir()
 
@@ -46,13 +42,13 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers {
 
     val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, None)
 
-    serverOpt.map(_.stop())
+    serverOpt.foreach(_.stop())
     serverOpt = Some(new FossilDBServer(storeManager, port, ExecutionContext.global))
-    serverOpt.map(_.start())
+    serverOpt.foreach(_.start())
   }
 
-  override def afterEach = {
-    serverOpt.map(_.stop())
+  override def afterEach: Unit = {
+    serverOpt.foreach(_.stop())
     deleteRecursively(new File(testTempDir))
   }
 
@@ -62,7 +58,7 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers {
   }
 
   "GRPC Standard Health Check" should "report SERVING" in {
-    val reply = healthClient.check(HealthCheckRequest.getDefaultInstance())
+    val reply = healthClient.check(HealthCheckRequest.getDefaultInstance)
     assert(reply.getStatus.toString == "SERVING")
   }
 
