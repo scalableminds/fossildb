@@ -1,8 +1,6 @@
-/*
- * Copyright (C) 2011-2017 scalable minds UG (haftungsbeschränkt) & Co. KG. <http://scm.io>
- */
 package com.scalableminds.fossildb.db
 
+import scala.annotation.tailrec
 import scala.util.Try
 
 
@@ -26,9 +24,9 @@ object VersionedKey {
 
 case class VersionedKeyValuePair[T](versionedKey: VersionedKey, value: T) {
 
-  def key = versionedKey.key
+  def key: String = versionedKey.key
 
-  def version = versionedKey.version
+  def version: Long = versionedKey.version
 
 }
 
@@ -93,8 +91,9 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
   def get(key: String, version: Option[Long] = None): Option[VersionedKeyValuePair[Array[Byte]]] =
     scanVersions(key, version).toStream.headOption
 
-  def getMultipleVersions(key: String, oldestVersion: Option[Long] = None, newestVersion: Option[Long] = None) = {
+  def getMultipleVersions(key: String, oldestVersion: Option[Long] = None, newestVersion: Option[Long] = None): (List[Array[Byte]], List[Long]) = {
 
+    @tailrec
     def toListIter(versionIterator: Iterator[VersionedKeyValuePair[Array[Byte]]],
                    accValues: List[Array[Byte]], accVersions: List[Long]): (List[Array[Byte]], List[Long]) = {
       if (!versionIterator.hasNext) (accValues, accVersions)
@@ -120,7 +119,7 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
 
   def getMultipleKeys(key: String, prefix: Option[String] = None, version: Option[Long] = None, limit: Option[Int]): (Seq[String], Seq[Array[Byte]], Seq[Long]) = {
     requireValidKey(key)
-    prefix.map{p => requireValidKey(p)}
+    prefix.foreach{ p => requireValidKey(p)}
     val iterator: Iterator[VersionedKeyValuePair[Array[Byte]]] = scanKeys(key, prefix, version)
     val asSequence = iterator.take(limit.getOrElse(Int.MaxValue)).toSeq
     val keys = asSequence.map(_.key)
@@ -132,7 +131,8 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
   private def scanKeys(key: String, prefix: Option[String] = None, version: Option[Long] = None): Iterator[VersionedKeyValuePair[Array[Byte]]] =
     new VersionFilterIterator(underlying.scan(key, prefix), version)
 
-  def deleteMultipleVersions(key: String, oldestVersion: Option[Long] = None, newestVersion: Option[Long] = None) = {
+  def deleteMultipleVersions(key: String, oldestVersion: Option[Long] = None, newestVersion: Option[Long] = None): Unit = {
+    @tailrec
     def deleteIter(versionIterator: Iterator[VersionedKeyValuePair[Array[Byte]]]): Unit = {
       if (versionIterator.hasNext) {
         val item = versionIterator.next()
@@ -151,22 +151,22 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
     underlying.put(VersionedKey(key, version).toString, value)
   }
 
-  def delete(key: String, version: Long) = {
+  def delete(key: String, version: Long): Unit = {
     requireValidKey(key)
     underlying.delete(VersionedKey(key, version).toString)
   }
 
-  def listKeys(limit: Option[Int], startAfterKey: Option[String]) = {
+  def listKeys(limit: Option[Int], startAfterKey: Option[String]): Seq[String] = {
     val iterator = new KeyOnlyIterator(underlying, startAfterKey)
     iterator.take(limit.getOrElse(Int.MaxValue)).toSeq
   }
 
-  def listVersions(key: String, limit: Option[Int], offset: Option[Int]) = {
+  def listVersions(key: String, limit: Option[Int], offset: Option[Int]): Seq[Long] = {
     val iterator = scanVersions(key)
     iterator.map(_.version).drop(offset.getOrElse(0)).take(limit.getOrElse(Int.MaxValue)).toSeq
   }
 
-  private def requireValidKey(key: String) = {
+  private def requireValidKey(key: String): Unit = {
     require(!(key contains "@"), "keys cannot contain the char @")
   }
 }

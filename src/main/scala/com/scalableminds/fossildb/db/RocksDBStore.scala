@@ -1,6 +1,3 @@
-/*
- * Copyright (C) 2011-2017 scalable minds UG (haftungsbeschränkt) & Co. KG. <http://scm.io>
- */
 package com.scalableminds.fossildb.db
 
 import com.typesafe.scalalogging.LazyLogging
@@ -18,7 +15,7 @@ case class KeyValuePair[T](key: String, value: T)
 
 class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePathOpt: Option[String]) extends LazyLogging {
 
-  val (db: RocksDB, columnFamilyHandles) = {
+  private val (db: RocksDB, columnFamilyHandles) = {
     RocksDB.loadLibrary()
     val columnOptions = new ColumnFamilyOptions()
       .setArenaBlockSize(4L * 1024 * 1024) // 4MB
@@ -31,9 +28,8 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
         org.rocksdb.OptionsUtil.loadOptionsFromFile(optionsFilePath, Env.getDefault, options, cfListRef.asJava)
         logger.info("successfully loaded rocksdb options from " + optionsFilePath)
       } catch {
-        case e: Exception => {
+        case e: Exception =>
           throw new Exception("Failed to load rocksdb options from file " + optionsFilePath, e)
-        }
       }
     }
     options.setCreateIfMissing(true).setCreateMissingColumnFamilies(true)
@@ -65,7 +61,7 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     backupEngine.getBackupInfo.asScala.headOption.map(info => BackupInfo(info.backupId, info.timestamp, info.size))
   }
 
-  def restoreFromBackup(backupDir: Path) = {
+  def restoreFromBackup(backupDir: Path): Unit = {
     logger.info("Restoring from backup. RocksDB temporarily unavailable")
     close()
     RocksDB.loadLibrary()
@@ -74,16 +70,16 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     logger.info("Restoring from backup complete. Reopening RocksDB")
   }
 
-  def compactAllData() = {
+  def compactAllData(): Unit = {
     logger.info("Compacting all data")
     RocksDB.loadLibrary()
     db.compactRange()
     logger.info("All data has been compacted to last level containing data")
   }
 
-  def exportToNewDB(newDataDir: Path, newOptionsFilePathOpt: Option[String]) = {
+  def exportToNewDB(newDataDir: Path, newOptionsFilePathOpt: Option[String]): Unit = {
     RocksDB.loadLibrary()
-    logger.info(s"Exporting to new DB at ${newDataDir.toString} with options file ${newOptionsFilePathOpt}")
+    logger.info(s"Exporting to new DB at ${newDataDir.toString} with options file $newOptionsFilePathOpt")
     val newManager = new RocksDBManager(newDataDir, columnFamilies, newOptionsFilePathOpt)
     newManager.columnFamilyHandles.foreach { case (name, handle) =>
       val dataIterator = getStoreForColumnFamily(name).get.scan("", None)
@@ -146,11 +142,11 @@ class RocksDBStore(db: RocksDB, handle: ColumnFamilyHandle) {
     new RocksDBKeyIterator(it, prefix)
   }
 
-  def put(key: String, value: Array[Byte]) = {
+  def put(key: String, value: Array[Byte]): Unit = {
     db.put(handle, key.getBytes(), value)
   }
 
-  def delete(key: String) = {
+  def delete(key: String): Unit = {
     db.delete(handle, key.getBytes())
   }
 

@@ -1,46 +1,45 @@
-/*
- * Copyright (C) 2011-2017 scalable minds UG (haftungsbeschränkt) & Co. KG. <http://scm.io>
- */
 package com.scalableminds.fossildb.db
 
 import java.nio.file.{Path, Paths}
 import java.util.concurrent.atomic.AtomicBoolean
+import scala.concurrent.Future
 
 class StoreManager(dataDir: Path, backupDir: Path, columnFamilies: List[String], rocksdbOptions: Option[String]) {
 
-  var rocksDBManager: Option[RocksDBManager] = None
-  var stores: Option[Map[String, VersionedKeyValueStore]] = None
+  private var rocksDBManager: Option[RocksDBManager] = None
+  private var stores: Option[Map[String, VersionedKeyValueStore]] = None
 
-  reInitialize
+  reInitialize()
 
-  def reInitialize = {
-    rocksDBManager.map(_.close)
+  private def reInitialize(): Unit = {
+    rocksDBManager.map(_.close())
     rocksDBManager = Some(new RocksDBManager(dataDir, columnFamilies, rocksdbOptions))
     stores = Some(columnFamilies.map { cf =>
       val store: VersionedKeyValueStore = new VersionedKeyValueStore(rocksDBManager.get.getStoreForColumnFamily(cf).get)
-      (cf -> store)
+      cf -> store
     }.toMap)
   }
 
-  def getStore(columnFamily: String) = {
-    failDuringRestore
+  def getStore(columnFamily: String): VersionedKeyValueStore = {
+    failDuringRestore()
     try {
-      stores.get.get(columnFamily).get
+      val existingStores = stores.get
+      existingStores(columnFamily)
     } catch {
-      case e: Exception => throw new NoSuchElementException("No store for column family " + columnFamily)
+      case _: Exception => throw new NoSuchElementException("No store for column family " + columnFamily)
     }
   }
 
 
-  val backupInProgress = new AtomicBoolean(false)
-  val restoreInProgress = new AtomicBoolean(false)
+  private val backupInProgress = new AtomicBoolean(false)
+  private val restoreInProgress = new AtomicBoolean(false)
 
-  def failDuringRestore = if (restoreInProgress.get) throw new Exception("Unavilable during restore-from-backup operation")
-  def failDuringBackup = if (backupInProgress.get) throw new Exception("Unavilable during backup")
+  private def failDuringRestore(): Unit = if (restoreInProgress.get) throw new Exception("Unavilable during restore-from-backup operation")
+  private def failDuringBackup(): Unit = if (backupInProgress.get) throw new Exception("Unavilable during backup")
 
 
-  def backup = {
-    failDuringRestore
+  def backup: Option[BackupInfo] = {
+    failDuringRestore()
     if (backupInProgress.compareAndSet(false, true)) {
       try {
         rocksDBManager.get.backup(backupDir)
@@ -52,13 +51,13 @@ class StoreManager(dataDir: Path, backupDir: Path, columnFamilies: List[String],
     }
   }
 
-  def restoreFromBackup = {
-    failDuringBackup
+  def restoreFromBackup(): Unit = {
+    failDuringBackup()
     if (restoreInProgress.compareAndSet(false, true)) {
       try {
         rocksDBManager.get.restoreFromBackup(backupDir)
       } finally {
-        reInitialize
+        reInitialize()
         restoreInProgress.set(false)
       }
     } else {
@@ -66,18 +65,18 @@ class StoreManager(dataDir: Path, backupDir: Path, columnFamilies: List[String],
     }
   }
 
-  def compactAllData() = {
-    failDuringBackup
-    failDuringRestore
+  def compactAllData(): Unit = {
+    failDuringBackup()
+    failDuringRestore()
     rocksDBManager.get.compactAllData()
   }
 
-  def exportDB(newDataDir: String, newOptionsFilePathOpt: Option[String]) = {
-    failDuringRestore
+  def exportDB(newDataDir: String, newOptionsFilePathOpt: Option[String]): Unit = {
+    failDuringRestore()
     rocksDBManager.get.exportToNewDB(Paths.get(newDataDir), newOptionsFilePathOpt)
   }
 
-  def close = {
-    rocksDBManager.map(_.close)
+  def close: Option[Future[Unit]] = {
+    rocksDBManager.map(_.close())
   }
 }

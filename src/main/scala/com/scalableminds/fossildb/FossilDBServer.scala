@@ -1,6 +1,3 @@
-/*
- * Copyright (C) 2011-2017 scalable minds UG (haftungsbeschränkt) & Co. KG. <http://scm.io>
- */
 package com.scalableminds.fossildb
 
 import com.scalableminds.fossildb.db.StoreManager
@@ -22,7 +19,7 @@ class FossilDBServer(storeManager: StoreManager, port: Int, executionContext: Ex
     healthStatusManager = new HealthStatusManager()
     server = NettyServerBuilder.forPort(port).maxMessageSize(Int.MaxValue)
       .addService(FossilDBGrpc.bindService(new FossilDBGrpcImpl(storeManager), executionContext))
-      .addService(healthStatusManager.getHealthService())
+      .addService(healthStatusManager.getHealthService)
       .build.start
     healthStatusManager.setStatus("", HealthCheckResponse.ServingStatus.SERVING)
     logger.info("Server started, listening on " + port)
@@ -48,6 +45,3 @@ class FossilDBServer(storeManager: StoreManager, port: Int, executionContext: Ex
   }
 
 }
-
-
-
