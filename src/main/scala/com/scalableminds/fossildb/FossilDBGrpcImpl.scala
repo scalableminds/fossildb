@@ -70,6 +70,7 @@ class FossilDBGrpcImpl(storeManager: StoreManager)
   override def listVersions(req: ListVersionsRequest): Future[ListVersionsReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
     val versions = store.listVersions(req.key, req.limit, req.offset)
+    store.getUnderlying.listAllKeys()
     ListVersionsReply(success = true, None, versions)
   } { errorMsg => ListVersionsReply(success = false, errorMsg) }
 
@@ -82,7 +83,7 @@ class FossilDBGrpcImpl(storeManager: StoreManager)
   } { errorMsg => BackupReply(success = false, errorMsg, 0, 0, 0) }
 
   override def restoreFromBackup(req: RestoreFromBackupRequest): Future[RestoreFromBackupReply] = withExceptionHandler(req) {
-    storeManager.restoreFromBackup
+    storeManager.restoreFromBackup()
     RestoreFromBackupReply(success = true)
   } { errorMsg => RestoreFromBackupReply(success = false, errorMsg) }
 

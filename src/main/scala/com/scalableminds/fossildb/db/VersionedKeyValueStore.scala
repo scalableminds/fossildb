@@ -89,7 +89,9 @@ class KeyOnlyIterator[T](underlying: RocksDBStore, startAfterKey: Option[String]
 class VersionedKeyValueStore(underlying: RocksDBStore) {
 
   def get(key: String, version: Option[Long] = None): Option[VersionedKeyValuePair[Array[Byte]]] =
-    scanVersions(key, version).toStream.headOption
+    scanVersionValuePairs(key, version).toStream.headOption
+
+  def getUnderlying: RocksDBStore = underlying
 
   def getMultipleVersions(key: String, oldestVersion: Option[Long] = None, newestVersion: Option[Long] = None): (List[Array[Byte]], List[Long]) = {
 
@@ -104,16 +106,24 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
       }
     }
 
-    val iterator = scanVersions(key, newestVersion)
+    val iterator = scanVersionValuePairs(key, newestVersion)
     val (versions, keys) = toListIter(iterator, List(), List())
     (versions.reverse, keys.reverse)
   }
 
-  private def scanVersions(key: String, version: Option[Long] = None): Iterator[VersionedKeyValuePair[Array[Byte]]] = {
+  private def scanVersionValuePairs(key: String, version: Option[Long] = None): Iterator[VersionedKeyValuePair[Array[Byte]]] = {
     requireValidKey(key)
     val prefix = s"$key@"
     underlying.scan(version.map(VersionedKey(key, _).toString).getOrElse(prefix), Some(prefix)).flatMap { pair =>
       VersionedKey(pair.key).map(VersionedKeyValuePair(_, pair.value))
+    }
+  }
+
+  private def scanVersionsOnly(key: String, version: Option[Long] = None): Iterator[VersionedKey] = {
+    requireValidKey(key)
+    val prefix = s"$key@"
+    underlying.scanKeysOnly(version.map(VersionedKey(key, _).toString).getOrElse(prefix), Some(prefix)).flatMap { key =>
+      VersionedKey(key)
     }
   }
 
@@ -133,7 +143,7 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
 
   def deleteMultipleVersions(key: String, oldestVersion: Option[Long] = None, newestVersion: Option[Long] = None): Unit = {
     @tailrec
-    def deleteIter(versionIterator: Iterator[VersionedKeyValuePair[Array[Byte]]]): Unit = {
+    def deleteIter(versionIterator: Iterator[VersionedKey]): Unit = {
       if (versionIterator.hasNext) {
         val item = versionIterator.next()
         if (item.version >= oldestVersion.getOrElse(0L)) {
@@ -143,7 +153,7 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
       }
     }
 
-    deleteIter(scanVersions(key, newestVersion))
+    deleteIter(scanVersionsOnly(key, newestVersion))
   }
 
   def put(key: String, version: Long, value: Array[Byte]): Unit = {
@@ -162,7 +172,10 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
   }
 
   def listVersions(key: String, limit: Option[Int], offset: Option[Int]): Seq[Long] = {
-    val iterator = scanVersions(key)
+    underlying
+
+
+    val iterator = scanVersionsOnly(key)
     iterator.map(_.version).drop(offset.getOrElse(0)).take(limit.getOrElse(Int.MaxValue)).toSeq
   }
 
