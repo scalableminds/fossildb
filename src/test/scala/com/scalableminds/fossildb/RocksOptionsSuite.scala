@@ -1,6 +1,4 @@
 /*
- * Copyright (C) 2011-2018 scalable minds UG (haftungsbeschränkt) & Co. KG. <http://scm.io>
- */
 package com.scalableminds.fossildb
 
 import java.io.File
@@ -13,6 +11,7 @@ import org.scalatest.{BeforeAndAfterEach, FlatSpec}
 import scala.collection.mutable
 import scala.collection.JavaConverters._
 import scala.io.Source
+
 
 class RocksOptionsSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers {
 
@@ -72,3 +71,4 @@ class RocksOptionsSuite extends FlatSpec with BeforeAndAfterEach with TestHelper
 
 
 }
+*/

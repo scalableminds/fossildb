@@ -68,9 +68,14 @@ class FossilDBGrpcImpl(storeManager: StoreManager)
   } { errorMsg => ListKeysReply(success = false, errorMsg) }
 
   override def listVersions(req: ListVersionsRequest): Future[ListVersionsReply] = withExceptionHandler(req) {
+    val before = System.currentTimeMillis()
     val store = storeManager.getStore(req.collection)
-    val versions = store.listVersions(req.key, req.limit, req.offset)
-    store.getUnderlying.listAllKeys()
+    store.getUnderlying.seekAndMeasureTime(req.key)
+    //val versions = store.listVersions(req.key, req.limit, req.offset)
+    val versions = List(1L)
+    val after = System.currentTimeMillis()
+    logger.info(s"answering list versions took ${after - before} ms total")
+    // store.getUnderlying.listAllKeys()
     ListVersionsReply(success = true, None, versions)
   } { errorMsg => ListVersionsReply(success = false, errorMsg) }
 

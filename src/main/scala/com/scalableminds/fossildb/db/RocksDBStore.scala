@@ -24,6 +24,8 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
       .setArenaBlockSize(4L * 1024 * 1024) // 4MB
       .setTargetFileSizeBase(1024L * 1024 * 1024) // 1GB
       .setMaxBytesForLevelBase(10L * 1024 * 1024 * 1024) // 10GB
+      .setEnableBlobFiles(true)
+      .setMinBlobSize(1024L * 1024) // 1MB
     val options = new DBOptions()
     val cfListRef: mutable.Buffer[ColumnFamilyDescriptor] = mutable.Buffer()
     optionsFilePathOpt.foreach { optionsFilePath =>
@@ -58,7 +60,7 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
       Files.createDirectories(backupDir)
 
     RocksDB.loadLibrary()
-    val backupEngine = BackupEngine.open(Env.getDefault, new BackupableDBOptions(backupDir.toString))
+    val backupEngine = BackupEngine.open(Env.getDefault, new BackupEngineOptions(backupDir.toString))
     backupEngine.createNewBackup(db)
     backupEngine.purgeOldBackups(1)
     backupEngine.getBackupInfo.asScala.headOption.map(info => BackupInfo(info.backupId, info.timestamp, info.size))
@@ -68,7 +70,7 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     logger.info("Restoring from backup. RocksDB temporarily unavailable")
     close()
     RocksDB.loadLibrary()
-    val backupEngine = BackupEngine.open(Env.getDefault, new BackupableDBOptions(backupDir.toString))
+    val backupEngine = BackupEngine.open(Env.getDefault, new BackupEngineOptions(backupDir.toString))
     backupEngine.restoreDbFromLatestBackup(dataDir.toString, dataDir.toString, new RestoreOptions(true))
     logger.info("Restoring from backup complete. Reopening RocksDB")
   }
@@ -87,6 +89,7 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     newManager.columnFamilyHandles.foreach { case (name, handle) =>
       val dataIterator = getStoreForColumnFamily(name).get.scan("", None)
       dataIterator.foreach(el => newManager.db.put(handle, el.key.getBytes, el.value))
+      dataIterator.close()
     }
     logger.info("Writing data completed. Start compaction")
     newManager.db.compactRange()
@@ -113,6 +116,8 @@ class RocksDBKeyIterator(it: RocksIterator, prefix: Option[String]) extends Iter
     new String(it.key().map(_.toChar))
   }
 
+  def close(): Unit = it.close()
+
 }
 
 class RocksDBIterator(it: RocksIterator, prefix: Option[String]) extends Iterator[KeyValuePair[Array[Byte]]] {
@@ -125,6 +130,8 @@ class RocksDBIterator(it: RocksIterator, prefix: Option[String]) extends Iterato
     value
   }
 
+  def close(): Unit = it.close()
+
 }
 
 class RocksDBStore(db: RocksDB, handle: ColumnFamilyHandle) extends LazyLogging {
@@ -133,10 +140,28 @@ class RocksDBStore(db: RocksDB, handle: ColumnFamilyHandle) extends LazyLogging 
     db.get(handle, key.getBytes())
   }
 
-  def scan(key: String, prefix: Option[String]): Iterator[KeyValuePair[Array[Byte]]] = {
+  def scan(key: String, prefix: Option[String]): RocksDBIterator = {
     val it = db.newIterator(handle)
     it.seek(key.getBytes())
     new RocksDBIterator(it, prefix)
+  }
+
+  def seekAndMeasureTime(key: String): Unit = {
+    val it = db.newIterator(handle)
+    val keyBytes = key.getBytes()
+    //TimeLogger.logTime("seekToFirst", logger)(it.seekToFirst())
+    TimeLogger.logTime(f"seek to $key in column ${new String(handle.getName)}", logger, thresholdMillis = 0) {
+      it.seek(keyBytes)
+    }
+    it.close()
+
+    val it2 = db.newIterator(handle)
+    //TimeLogger.logTime("seekToFirst2", logger)(it.seekToFirst())
+    TimeLogger.logTime(f"seek2 to $key in column ${new String(handle.getName)}", logger, thresholdMillis = 0) {
+      it2.seek(keyBytes)
+    }
+
+    it2.close()
   }
 
   def listAllKeys(): Unit = {
@@ -147,24 +172,12 @@ class RocksDBStore(db: RocksDB, handle: ColumnFamilyHandle) extends LazyLogging 
     if (columnName == "editableMappings") {
       logger.info(s"listing ${keys.length} keys of column $columnName: \n ${keys.mkString(",\n")}")
     }
-    it.seekToLast()
-    val keys2 = new RocksDBKeyIterator(it, None).toList
-    if (columnName == "editableMappings") {
-      logger.info(s"[seekToLast] listing ${keys2.length} keys of column $columnName: \n ${keys.mkString(",\n")}")
-    }
+    it.close()
   }
 
   def scanKeysOnly(key: String, prefix: Option[String]): RocksDBKeyIterator = {
     val it = db.newIterator(handle)
-    val keyBytes = key.getBytes()
-    it.seekToLast()
-    TimeLogger.logTime(f"seek to $key in column ${new String(handle.getName)}", logger, thresholdMillis = 10) {
-      it.seek(keyBytes)
-    }
-    it.seekToLast()
-    TimeLogger.logTime(f"second seek to $key in column ${new String(handle.getName)}", logger, thresholdMillis = 10) {
-      it.seek(keyBytes)
-    }
+    it.seek(key.getBytes())
     new RocksDBKeyIterator(it, prefix)
   }
 
