@@ -1,5 +1,7 @@
 package com.scalableminds.fossildb.db
 
+import com.typesafe.scalalogging.LazyLogging
+
 import scala.annotation.tailrec
 import scala.util.Try
 
@@ -86,7 +88,7 @@ class KeyOnlyIterator[T](underlying: RocksDBStore, startAfterKey: Option[String]
 }
 
 
-class VersionedKeyValueStore(underlying: RocksDBStore) {
+class VersionedKeyValueStore(underlying: RocksDBStore, chunkSize: Int) extends LazyLogging {
 
   def get(key: String, version: Option[Long] = None): Option[VersionedKeyValuePair[Array[Byte]]] =
     scanVersionValuePairs(key, version).toStream.headOption
@@ -159,7 +161,17 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
 
   def put(key: String, version: Long, value: Array[Byte]): Unit = {
     requireValidKey(key)
-    underlying.put(VersionedKey(key, version).toString, value)
+    if (value.length < chunkSize) {
+      logger.info("smaller than chunk size")
+      underlying.put(VersionedKey(key, version).toString, value)
+    } else {
+      val chunkCount: Int = (value.length + chunkSize - 1) / chunkSize // TODO overflow bug?
+      for (chunkIndex <- 0 until chunkCount ) {
+        val chunk = value.slice(chunkIndex*chunkSize, (chunkIndex + 1) * chunkSize)
+        // TODO put multiple
+      }
+      underlying.put(VersionedKey(key, version).toString, value)
+    }
   }
 
   def delete(key: String, version: Long): Unit = {

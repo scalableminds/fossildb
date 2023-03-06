@@ -33,13 +33,15 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers wi
   private val anotherKey = "anotherKey"
   private val aThirdKey = "aThirdKey"
 
+  private val chunkSize = 1024
+
   override def beforeEach: Unit = {
     deleteRecursively(new File(testTempDir))
     new File(testTempDir).mkdir()
 
     val columnFamilies = List(collectionA, collectionB)
 
-    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, None)
+    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, None, chunkSize)
 
     serverOpt.foreach(_.stop())
     serverOpt = Some(new FossilDBServer(storeManager, port, ExecutionContext.global))
