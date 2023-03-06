@@ -22,8 +22,6 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
       .setArenaBlockSize(4L * 1024 * 1024) // 4MB
       .setTargetFileSizeBase(1024L * 1024 * 1024) // 1GB
       .setMaxBytesForLevelBase(10L * 1024 * 1024 * 1024) // 10GB
-      .setEnableBlobFiles(true)
-      .setMinBlobSize(1024L * 1024) // 1MB
     val options = new DBOptions()
     val cfListRef: mutable.Buffer[ColumnFamilyDescriptor] = mutable.Buffer()
     optionsFilePathOpt.foreach { optionsFilePath =>
