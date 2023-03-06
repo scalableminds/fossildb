@@ -1,6 +1,3 @@
-/*
- * Copyright (C) 2011-2017 scalable minds UG (haftungsbeschränkt) & Co. KG. <http://scm.io>
- */
 package com.scalableminds.fossildb
 
 import java.io.{PrintWriter, StringWriter}
@@ -8,7 +5,7 @@ import java.io.{PrintWriter, StringWriter}
 import com.google.protobuf.ByteString
 import com.scalableminds.fossildb.db.StoreManager
 import com.scalableminds.fossildb.proto.fossildbapi._
-import com.trueaccord.scalapb.GeneratedMessage
+import scalapb.GeneratedMessage
 import com.typesafe.scalalogging.LazyLogging
 
 import scala.concurrent.Future
@@ -17,102 +14,100 @@ class FossilDBGrpcImpl(storeManager: StoreManager)
   extends FossilDBGrpc.FossilDB
     with LazyLogging {
 
-  override def health(req: HealthRequest) = withExceptionHandler(req) {
-    HealthReply(true)
-  } { errorMsg => HealthReply(false, errorMsg) }
+  override def health(req: HealthRequest): Future[HealthReply] = withExceptionHandler(req) {
+    HealthReply(success = true)
+  } { errorMsg => HealthReply(success = false, errorMsg) }
 
-  override def get(req: GetRequest) = withExceptionHandler(req) {
+  override def get(req: GetRequest): Future[GetReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
     val versionedKeyValuePairOpt = store.get(req.key, req.version)
     versionedKeyValuePairOpt match {
-      case Some(pair) => GetReply(true, None, ByteString.copyFrom(pair.value), pair.version)
-      case None => {
-        if (!(req.mayBeEmpty.getOrElse(false))) throw new NoSuchElementException
-        GetReply(false, Some("No such element"), ByteString.EMPTY, 0)
-      }
+      case Some(pair) => GetReply(success = true, None, ByteString.copyFrom(pair.value), pair.version)
+      case None =>
+        if (!req.mayBeEmpty.getOrElse(false)) throw new NoSuchElementException
+        GetReply(success = false, Some("No such element"), ByteString.EMPTY, 0)
     }
-  } { errorMsg => GetReply(false, errorMsg, ByteString.EMPTY, 0) }
+  } { errorMsg => GetReply(success = false, errorMsg, ByteString.EMPTY, 0) }
 
-  override def put(req: PutRequest) = withExceptionHandler(req) {
+  override def put(req: PutRequest): Future[PutReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
     val version = req.version.getOrElse(store.get(req.key, None).map(_.version + 1).getOrElse(0L))
     require(version >= 0, "Version numbers must be non-negative")
     store.put(req.key, version, req.value.toByteArray)
-    PutReply(true)
-  } { errorMsg => PutReply(false, errorMsg) }
+    PutReply(success = true)
+  } { errorMsg => PutReply(success = false, errorMsg) }
 
-  override def delete(req: DeleteRequest) = withExceptionHandler(req) {
+  override def delete(req: DeleteRequest): Future[DeleteReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
     store.delete(req.key, req.version)
-    DeleteReply(true)
-  } { errorMsg => DeleteReply(false, errorMsg) }
+    DeleteReply(success = true)
+  } { errorMsg => DeleteReply(success = false, errorMsg) }
 
-  override def getMultipleVersions(req: GetMultipleVersionsRequest) = withExceptionHandler(req) {
+  override def getMultipleVersions(req: GetMultipleVersionsRequest): Future[GetMultipleVersionsReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
     val (values, versions) = store.getMultipleVersions(req.key, req.oldestVersion, req.newestVersion)
-    GetMultipleVersionsReply(true, None, values.map(ByteString.copyFrom(_)), versions)
-  } { errorMsg => GetMultipleVersionsReply(false, errorMsg) }
+    GetMultipleVersionsReply(success = true, None, values.map(ByteString.copyFrom), versions)
+  } { errorMsg => GetMultipleVersionsReply(success = false, errorMsg) }
 
-  override def getMultipleKeys(req: GetMultipleKeysRequest) = withExceptionHandler(req) {
+  override def getMultipleKeys(req: GetMultipleKeysRequest): Future[GetMultipleKeysReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
     val (keys, values, versions) = store.getMultipleKeys(req.key, req.prefix, req.version, req.limit)
-    GetMultipleKeysReply(true, None, keys, values.map(ByteString.copyFrom(_)), versions)
-  } { errorMsg => GetMultipleKeysReply(false, errorMsg) }
+    GetMultipleKeysReply(success = true, None, keys, values.map(ByteString.copyFrom), versions)
+  } { errorMsg => GetMultipleKeysReply(success = false, errorMsg) }
 
-  override def deleteMultipleVersions(req: DeleteMultipleVersionsRequest) = withExceptionHandler(req) {
+  override def deleteMultipleVersions(req: DeleteMultipleVersionsRequest): Future[DeleteMultipleVersionsReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
     store.deleteMultipleVersions(req.key, req.oldestVersion, req.newestVersion)
-    DeleteMultipleVersionsReply(true)
-  } { errorMsg => DeleteMultipleVersionsReply(false, errorMsg) }
+    DeleteMultipleVersionsReply(success = true)
+  } { errorMsg => DeleteMultipleVersionsReply(success = false, errorMsg) }
 
-  override def listKeys(req: ListKeysRequest) = withExceptionHandler(req) {
+  override def listKeys(req: ListKeysRequest): Future[ListKeysReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
     val keys = store.listKeys(req.limit, req.startAfterKey)
-    ListKeysReply(true, None, keys)
-  } { errorMsg => ListKeysReply(false, errorMsg) }
+    ListKeysReply(success = true, None, keys)
+  } { errorMsg => ListKeysReply(success = false, errorMsg) }
 
-  override def listVersions(req: ListVersionsRequest) = withExceptionHandler(req) {
+  override def listVersions(req: ListVersionsRequest): Future[ListVersionsReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
     val versions = store.listVersions(req.key, req.limit, req.offset)
-    ListVersionsReply(true, None, versions)
-  } { errorMsg => ListVersionsReply(false, errorMsg) }
+    ListVersionsReply(success = true, None, versions)
+  } { errorMsg => ListVersionsReply(success = false, errorMsg) }
 
-  override def backup(req: BackupRequest) = withExceptionHandler(req) {
+  override def backup(req: BackupRequest): Future[BackupReply] = withExceptionHandler(req) {
     val backupInfoOpt = storeManager.backup
     backupInfoOpt match {
-      case Some(backupInfo) => BackupReply(true, None, backupInfo.id, backupInfo.timestamp, backupInfo.size)
+      case Some(backupInfo) => BackupReply(success = true, None, backupInfo.id, backupInfo.timestamp, backupInfo.size)
       case _ => throw new Exception("Backup did not return valid BackupInfo")
     }
-  } { errorMsg => BackupReply(false, errorMsg, 0, 0, 0) }
+  } { errorMsg => BackupReply(success = false, errorMsg, 0, 0, 0) }
 
-  override def restoreFromBackup(req: RestoreFromBackupRequest) = withExceptionHandler(req) {
-    storeManager.restoreFromBackup
-    RestoreFromBackupReply(true)
-  } { errorMsg => RestoreFromBackupReply(false, errorMsg) }
+  override def restoreFromBackup(req: RestoreFromBackupRequest): Future[RestoreFromBackupReply] = withExceptionHandler(req) {
+    storeManager.restoreFromBackup()
+    RestoreFromBackupReply(success = true)
+  } { errorMsg => RestoreFromBackupReply(success = false, errorMsg) }
 
-  override def compactAllData(req: CompactAllDataRequest) = withExceptionHandler(req) {
+  override def compactAllData(req: CompactAllDataRequest): Future[CompactAllDataReply] = withExceptionHandler(req) {
     storeManager.compactAllData()
-    CompactAllDataReply(true)
-  } { errorMsg => CompactAllDataReply(false, errorMsg) }
+    CompactAllDataReply(success = true)
+  } { errorMsg => CompactAllDataReply(success = false, errorMsg) }
 
-  override def exportDB(req: ExportDBRequest) = withExceptionHandler(req) {
+  override def exportDB(req: ExportDBRequest): Future[ExportDBReply] = withExceptionHandler(req) {
     storeManager.exportDB(req.newDataDir, req.optionsFile)
-    ExportDBReply(true)
-  } { errorMsg => ExportDBReply(false, errorMsg) }
+    ExportDBReply(success = true)
+  } { errorMsg => ExportDBReply(success = false, errorMsg) }
 
   private def withExceptionHandler[T, R <: GeneratedMessage](request: R)(tryBlock: => T)(onErrorBlock: Option[String] => T): Future[T] = {
     try {
       logger.debug("received " + requestToString(request))
       Future.successful(tryBlock)
     } catch {
-      case e: Exception => {
+      case e: Exception =>
         log(e, request)
         Future.successful(onErrorBlock(Some(e.toString)))
-      }
     }
   }
 
-  private def log[R <: GeneratedMessage](e: Exception, request: R) = {
+  private def log[R <: GeneratedMessage](e: Exception, request: R): Unit = {
     logger.warn(getStackTraceAsString(e) + "\nrequest that caused this error: " + requestToString(request) + "\n")
   }
 

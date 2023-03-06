@@ -8,19 +8,19 @@ import fossildb.BuildInfo
 
 import scala.concurrent.ExecutionContext
 
-object ConfigDefaults {val port = 7155; val dataDir = "data"; val backupDir = "backup"; val columnFamilies = List(); val rocksOptionsFile = None}
+object ConfigDefaults {val port: Int = 7155; val dataDir: String = "data"; val backupDir: String = "backup"; val columnFamilies: List[String] = List(); val rocksOptionsFile: Option[String] = None}
 case class Config(port: Int = ConfigDefaults.port, dataDir: String = ConfigDefaults.dataDir,
                   backupDir: String = ConfigDefaults.backupDir, columnFamilies: List[String] = ConfigDefaults.columnFamilies,
                   rocksOptionsFile: Option[String] = ConfigDefaults.rocksOptionsFile)
 
 object FossilDB extends LazyLogging {
-  def main(args: Array[String]) = {
+  def main(args: Array[String]): Unit = {
 
     if (args.contains("--version"))
       println(BuildInfo.version)
     else {
       parseArguments(args) match {
-        case Some(config) => {
+        case Some(config) =>
           logger.info("Starting FossilDB")
           logger.info("BuildInfo: (" + BuildInfo + ")")
           logger.info("Config: " + config)
@@ -31,14 +31,12 @@ object FossilDB extends LazyLogging {
 
           server.start()
           server.blockUntilShutdown()
-
-      }
         case None => ()
       }
     }
   }
 
-  def parseArguments(args: Array[String]) = {
+  private def parseArguments(args: Array[String]) = {
     val parser = new scopt.OptionParser[Config]("fossildb") {
 
       opt[Int]('p', "port").valueName("<num>").action( (x, c) =>

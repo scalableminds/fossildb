@@ -1,6 +1,3 @@
-/*
- * Copyright (C) 2011-2018 scalable minds UG (haftungsbeschränkt) & Co. KG. <http://scm.io>
- */
 package com.scalableminds.fossildb
 
 import java.io.{BufferedWriter, File, FileWriter}
