@@ -1,4 +1,3 @@
-/*
 package com.scalableminds.fossildb
 
 import java.io.File
@@ -10,31 +9,28 @@ import org.scalatest.{BeforeAndAfterEach, FlatSpec}
 
 import scala.collection.mutable
 import scala.collection.JavaConverters._
-import scala.io.Source
 
 
 class RocksOptionsSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers {
 
-  val testTempDir = "testData2"
-  val dataDir = Paths.get(testTempDir, "data")
-  val backupDir = Paths.get(testTempDir, "backup")
+  private val testTempDir = "testData2"
+  private val dataDir = Paths.get(testTempDir, "data")
+  private val backupDir = Paths.get(testTempDir, "backup")
 
-  val collectionA = "collectionA"
-  val collectionB = "collectionB"
+  private val collectionA = "collectionA"
+  private val collectionB = "collectionB"
 
-  val columnFamilies = List(collectionA, collectionB)
+  private val columnFamilies = List(collectionA, collectionB)
 
 
-
-  override def beforeEach = {
+  override def beforeEach: Unit = {
     deleteRecursively(new File(testTempDir))
     new File(testTempDir).mkdir()
   }
 
-  override def afterEach = {
+  override def afterEach: Unit = {
     deleteRecursively(new File(testTempDir))
   }
-
 
 
   "Initializing the StoreManager" should "load and use a specified config file" in {
@@ -43,9 +39,9 @@ class RocksOptionsSuite extends FlatSpec with BeforeAndAfterEach with TestHelper
 
     val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, Some(file.getPath))
 
-    var options = new DBOptions()
+    val options = new DBOptions()
       .setStatsDumpPeriodSec(100)
-    var cfListRef: mutable.Buffer[ColumnFamilyDescriptor] = mutable.Buffer()
+    val cfListRef: mutable.Buffer[ColumnFamilyDescriptor] = mutable.Buffer()
     // if successful, the rocksdb writes the loaded options to a file that can then be retreived with loadLatestOptions
     // we test that that one now includes the value 700 from the file above, rather than the 100 specified as a default
     org.rocksdb.OptionsUtil.loadLatestOptions(dataDir.toString, Env.getDefault, options, cfListRef.asJava)
@@ -69,6 +65,4 @@ class RocksOptionsSuite extends FlatSpec with BeforeAndAfterEach with TestHelper
   }
 
 
-
 }
-*/

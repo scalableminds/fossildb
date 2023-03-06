@@ -1,6 +1,5 @@
 package com.scalableminds.fossildb.db
 
-import com.scalableminds.fossildb.TimeLogger
 import com.typesafe.scalalogging.LazyLogging
 import org.rocksdb._
 
@@ -9,7 +8,6 @@ import java.util
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 import scala.concurrent.Future
-import scala.concurrent.duration._
 import scala.language.postfixOps
 
 case class BackupInfo(id: Int, timestamp: Long, size: Long)
@@ -146,35 +144,6 @@ class RocksDBStore(db: RocksDB, handle: ColumnFamilyHandle) extends LazyLogging 
     new RocksDBIterator(it, prefix)
   }
 
-  def seekAndMeasureTime(key: String): Unit = {
-    val it = db.newIterator(handle)
-    val keyBytes = key.getBytes()
-    //TimeLogger.logTime("seekToFirst", logger)(it.seekToFirst())
-    TimeLogger.logTime(f"seek to $key in column ${new String(handle.getName)}", logger, thresholdMillis = 0) {
-      it.seek(keyBytes)
-    }
-    it.close()
-
-    val it2 = db.newIterator(handle)
-    //TimeLogger.logTime("seekToFirst2", logger)(it.seekToFirst())
-    TimeLogger.logTime(f"seek2 to $key in column ${new String(handle.getName)}", logger, thresholdMillis = 0) {
-      it2.seek(keyBytes)
-    }
-
-    it2.close()
-  }
-
-  def listAllKeys(): Unit = {
-    val it = db.newIterator(handle)
-    it.seekToFirst()
-    val keys = new RocksDBKeyIterator(it, None).toList
-    val columnName = new String(handle.getName)
-    if (columnName == "editableMappings") {
-      logger.info(s"listing ${keys.length} keys of column $columnName: \n ${keys.mkString(",\n")}")
-    }
-    it.close()
-  }
-
   def scanKeysOnly(key: String, prefix: Option[String]): RocksDBKeyIterator = {
     val it = db.newIterator(handle)
     it.seek(key.getBytes())
@@ -190,4 +159,3 @@ class RocksDBStore(db: RocksDB, handle: ColumnFamilyHandle) extends LazyLogging 
   }
 
 }
-

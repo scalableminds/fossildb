@@ -52,7 +52,6 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers wi
     deleteRecursively(new File(testTempDir))
   }
 
-  /*
   "Health" should "reply" in {
     val reply = client.health(HealthRequest())
     assert(reply.success)
@@ -86,28 +85,8 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers wi
     client.put(PutRequest(collectionA, aKey, None, testData1))
     val reply = client.get(GetRequest(collectionA, aKey))
     assert(reply.actualVersion == 0)
-  }*/
-
-  "SeekTest" should "be fast" in {
-    val bigMapping = ByteString.copyFrom(Files.readAllBytes(Paths.get("/home/f/Downloads/perfreading/mapping.proto.bin")))
-    info(s"inserting ${bigMapping.size()} bytes")
-    val key = "c5d601a4-d170-4f48-a223-916f681d8c59"
-    client.put(PutRequest(collectionA, key, Some(1), bigMapping))
-    Thread.sleep(5000)
-    val before = System.currentTimeMillis()
-    val reply = client.listVersions(ListVersionsRequest(collectionA, key))
-    val after = System.currentTimeMillis()
-    info(s"list versions took ${after - before} ms")
-    Thread.sleep(5000)
-    val before2 = System.currentTimeMillis()
-    val reply2 = client.listVersions(ListVersionsRequest(collectionA, key))
-    val after2 = System.currentTimeMillis()
-    info(s"list versions 2 took ${after2 - before2} ms")
-    info(reply.versions.mkString(","))
-    assert(reply.versions.contains(1))
   }
 
-  /*
   "Get" should "return matching value after matching Put" in {
     client.put(PutRequest(collectionA, aKey, Some(0), testData1))
     val reply = client.get(GetRequest(collectionA, aKey, Some(0)))
@@ -317,6 +296,5 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers wi
     val reply = client.get(GetRequest(collectionA, aKey, Some(0)))
     assert(testData1 == reply.value)
   }
-  */
 
 }
