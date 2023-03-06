@@ -56,7 +56,7 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
       Files.createDirectories(backupDir)
 
     RocksDB.loadLibrary()
-    val backupEngine = BackupEngine.open(Env.getDefault, new BackupEngineOptions(backupDir.toString))
+    val backupEngine = BackupEngine.open(Env.getDefault, new BackupableDBOptions(backupDir.toString))
     backupEngine.createNewBackup(db)
     backupEngine.purgeOldBackups(1)
     backupEngine.getBackupInfo.asScala.headOption.map(info => BackupInfo(info.backupId, info.timestamp, info.size))
@@ -66,7 +66,7 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     logger.info("Restoring from backup. RocksDB temporarily unavailable")
     close()
     RocksDB.loadLibrary()
-    val backupEngine = BackupEngine.open(Env.getDefault, new BackupEngineOptions(backupDir.toString))
+    val backupEngine = BackupEngine.open(Env.getDefault, new BackupableDBOptions(backupDir.toString))
     backupEngine.restoreDbFromLatestBackup(dataDir.toString, dataDir.toString, new RestoreOptions(true))
     logger.info("Restoring from backup complete. Reopening RocksDB")
   }
@@ -85,7 +85,6 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     newManager.columnFamilyHandles.foreach { case (name, handle) =>
       val dataIterator = getStoreForColumnFamily(name).get.scan("", None)
       dataIterator.foreach(el => newManager.db.put(handle, el.key.getBytes, el.value))
-      dataIterator.close()
     }
     logger.info("Writing data completed. Start compaction")
     newManager.db.compactRange()
@@ -112,8 +111,6 @@ class RocksDBKeyIterator(it: RocksIterator, prefix: Option[String]) extends Iter
     new String(it.key().map(_.toChar))
   }
 
-  def close(): Unit = it.close()
-
 }
 
 class RocksDBIterator(it: RocksIterator, prefix: Option[String]) extends Iterator[KeyValuePair[Array[Byte]]] {
@@ -125,8 +122,6 @@ class RocksDBIterator(it: RocksIterator, prefix: Option[String]) extends Iterato
     it.next()
     value
   }
-
-  def close(): Unit = it.close()
 
 }
 

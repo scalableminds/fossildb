@@ -24,7 +24,6 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers wi
   private val healthClient = HealthGrpc.newBlockingStub(channel)
   private val collectionA = "collectionA"
   private val collectionB = "collectionB"
-  private val collectionC = "collectionC"
 
   private val testData1 = ByteString.copyFromUtf8("testData1")
   private val testData2 = ByteString.copyFromUtf8("testData2")
