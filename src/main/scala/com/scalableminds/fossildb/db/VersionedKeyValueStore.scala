@@ -157,7 +157,7 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
   }
 
   private def scanKeys(startAfterKey: Option[String], prefix: Option[String] = None, version: Option[Long] = None): VersionFilterIterator = {
-    val fullKey = startAfterKey.map(key => s"$key${VersionedKey.versionSeparator}").getOrElse("")
+    val fullKey = startAfterKey.map(key => s"$key${VersionedKey.versionSeparator}").orElse(prefix).getOrElse("")
     println(s"Scanning to $fullKey")
     new VersionFilterIterator(underlying.scan(fullKey, prefix), version)
   }
