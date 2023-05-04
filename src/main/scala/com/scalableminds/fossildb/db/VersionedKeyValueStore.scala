@@ -128,6 +128,7 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
   }
 
   def getMultipleKeys(startAfterKey: Option[String], prefix: Option[String] = None, version: Option[Long] = None, limit: Option[Int]): (Seq[String], Seq[Array[Byte]], Seq[Long]) = {
+    println(s"\ngetMultipleKeys! startAfterKey: $startAfterKey, prefix: $prefix, version: $version, limit: $limit")
     startAfterKey.foreach(requireValidKey)
     prefix.foreach{ p => requireValidKey(p)}
     val iterator: VersionFilterIterator = scanKeys(startAfterKey, prefix, version)
@@ -139,6 +140,7 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
      */
     val firstItemOpt: Option[VersionedKeyValuePair[Array[Byte]]] = if (iterator.hasNext) {
       val firstItem = iterator.next()
+      println(s"firstItem: ${firstItem.key}")
       if (startAfterKey.contains(firstItem.key)) {
         None
       } else {
@@ -146,8 +148,15 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
       }
     } else None
 
-    val limitPadded = limit.map(_ - 1).getOrElse(Int.MaxValue)
+    if (firstItemOpt.isDefined) {
+      println(s"including first item $firstItemOpt")
+    } else {
+      println(s"dropping first item (it equals startAfterKey)")
+    }
+
+    val limitPadded = limit.map(_ + 1).getOrElse(Int.MaxValue)
     val asVector = iterator.take(limitPadded).toVector
+    println(s"asVector: ${asVector.map{_.key}}")
     val asSequenceAdvancedIfNeeded = firstItemOpt.map(_ +: asVector).getOrElse(asVector).take(limit.getOrElse(Int.MaxValue))
     val keys = asSequenceAdvancedIfNeeded.map(_.key)
     println(s"Returning keys ${keys.toList}")

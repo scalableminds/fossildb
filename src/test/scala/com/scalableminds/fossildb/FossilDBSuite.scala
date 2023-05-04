@@ -30,7 +30,7 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers wi
   private val testData3 = ByteString.copyFromUtf8("testData3")
 
   private val aKey = "aKey"
-  private val anotherKey = "anotherKey"
+  private val aNotherKey = "aNotherKey"
   private val aThirdKey = "aThirdKey"
 
   override def beforeEach: Unit = {
@@ -114,7 +114,7 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers wi
   }
 
   it should "fail after Put with other key" in {
-    client.put(PutRequest(collectionA, anotherKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aNotherKey, Some(0), testData1))
     val reply = client.get(GetRequest(collectionA, aKey))
     assert(!reply.success)
   }
@@ -136,24 +136,24 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers wi
   "ListKeys" should "list all keys of a collection" in {
     client.put(PutRequest(collectionA, aKey, Some(0), testData1))
     client.put(PutRequest(collectionA, aKey, Some(1), testData2))
-    client.put(PutRequest(collectionA, anotherKey, Some(4), testData2))
+    client.put(PutRequest(collectionA, aNotherKey, Some(4), testData2))
     client.put(PutRequest(collectionB, aThirdKey, Some(1), testData1))
     val reply = client.listKeys(ListKeysRequest(collectionA))
     assert(reply.keys.contains(aKey))
-    assert(reply.keys.contains(anotherKey))
+    assert(reply.keys.contains(aNotherKey))
     assert(reply.keys.length == 2)
   }
 
   it should "support pagination with startAfterKey" in {
     client.put(PutRequest(collectionA, aKey, Some(0), testData1))
     client.put(PutRequest(collectionA, aKey, Some(1), testData2))
-    client.put(PutRequest(collectionA, anotherKey, Some(4), testData2))
+    client.put(PutRequest(collectionA, aNotherKey, Some(4), testData2))
     client.put(PutRequest(collectionB, aThirdKey, Some(1), testData1))
     val reply = client.listKeys(ListKeysRequest(collectionA, Some(1)))
     assert(reply.keys.length == 1)
     assert(reply.keys.contains(aKey))
     val reply2 = client.listKeys(ListKeysRequest(collectionA, Some(1), Some(reply.keys.last)))
-    assert(reply2.keys.contains(anotherKey))
+    assert(reply2.keys.contains(aNotherKey))
     assert(reply2.keys.length == 1)
   }
 
@@ -173,7 +173,7 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers wi
     client.put(PutRequest(collectionA, aKey, Some(0), testData1))
     client.put(PutRequest(collectionA, aKey, Some(1), testData2))
     client.put(PutRequest(collectionA, aKey, Some(2), testData3))
-    client.put(PutRequest(collectionA, anotherKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aNotherKey, Some(0), testData1))
     val reply = client.getMultipleVersions(GetMultipleVersionsRequest(collectionA, aKey))
     assert(reply.versions(0) == 2)
     assert(reply.versions(1) == 1)
@@ -191,7 +191,7 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers wi
     client.put(PutRequest(collectionA, aKey, Some(3), testData3))
     client.put(PutRequest(collectionA, aKey, Some(4), testData1))
     client.put(PutRequest(collectionA, aKey, Some(5), testData1))
-    client.put(PutRequest(collectionA, anotherKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aNotherKey, Some(0), testData1))
 
     val reply = client.getMultipleVersions(GetMultipleVersionsRequest(collectionA, aKey, Some(4), Some(2)))
     assert(reply.versions(0) == 4)
@@ -202,45 +202,45 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers wi
     assert(reply.values.length == 2)
   }
 
-  "GetMultipleKeys" should "return keys starting with initial one (no prefix)" in {
+  "GetMultipleKeys" should "return all keys" in {
     client.put(PutRequest(collectionA, aKey, Some(0), testData1))
-    client.put(PutRequest(collectionA, anotherKey, Some(0), testData2))
+    client.put(PutRequest(collectionA, aNotherKey, Some(0), testData2))
     client.put(PutRequest(collectionA, aThirdKey, Some(0), testData3))
-    val reply = client.getMultipleKeys(GetMultipleKeysRequest(collectionA, Some(aKey)))
-    assert(reply.keys.length == 2)
-    assert(reply.keys.contains(anotherKey))
+    val reply = client.getMultipleKeys(GetMultipleKeysRequest(collectionA))
+    assert(reply.keys.length == 3)
+    assert(reply.keys.contains(aNotherKey))
     assert(reply.keys.contains(aThirdKey))
-    assert(reply.values.length == 2)
+    assert(reply.values.length == 3)
     assert(reply.values.contains(testData2))
     assert(reply.values.contains(testData3))
-    assert(reply.actualVersions.length == 2)
+    assert(reply.actualVersions.length == 3)
     assert(reply.actualVersions.contains(0))
   }
 
-  it should "return keys of matching version (sorted alphabetically)" in {
+  it should "return keys of matching version" in {
     client.put(PutRequest(collectionA, aKey, Some(0), testData1))
-    client.put(PutRequest(collectionA, anotherKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aNotherKey, Some(0), testData1))
     client.put(PutRequest(collectionA, aThirdKey, Some(0), testData1))
     client.put(PutRequest(collectionA, aKey, Some(1), testData2))
-    client.put(PutRequest(collectionA, anotherKey, Some(1), testData2))
+    client.put(PutRequest(collectionA, aNotherKey, Some(1), testData2))
     client.put(PutRequest(collectionA, aThirdKey, Some(1), testData2))
     client.put(PutRequest(collectionA, aKey, Some(2), testData3))
-    client.put(PutRequest(collectionA, anotherKey, Some(2), testData3))
+    client.put(PutRequest(collectionA, aNotherKey, Some(2), testData3))
     client.put(PutRequest(collectionA, aThirdKey, Some(2), testData3))
-    val reply = client.getMultipleKeys(GetMultipleKeysRequest(collectionA, Some(aKey), None, Some(1)))
-    assert(reply.keys.length == 2)
+    val reply = client.getMultipleKeys(GetMultipleKeysRequest(collectionA, None, None, Some(1)))
+    assert(reply.keys.length == 3)
     assert(reply.values.contains(testData2))
   }
 
   it should "return keys of matching version, matching prefix (sorted alphabetically)" in {
     client.put(PutRequest(collectionA, aKey, Some(0), testData1))
-    client.put(PutRequest(collectionA, anotherKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aNotherKey, Some(0), testData1))
     client.put(PutRequest(collectionA, aThirdKey, Some(0), testData1))
     client.put(PutRequest(collectionA, aKey, Some(1), testData2))
-    client.put(PutRequest(collectionA, anotherKey, Some(1), testData2))
+    client.put(PutRequest(collectionA, aNotherKey, Some(1), testData2))
     client.put(PutRequest(collectionA, aThirdKey, Some(1), testData2))
     client.put(PutRequest(collectionA, aKey, Some(2), testData3))
-    client.put(PutRequest(collectionA, anotherKey, Some(2), testData3))
+    client.put(PutRequest(collectionA, aNotherKey, Some(2), testData3))
     client.put(PutRequest(collectionA, aThirdKey, Some(2), testData3))
     val reply = client.getMultipleKeys(GetMultipleKeysRequest(collectionA, None, Some("aK"), Some(1)))
     assert(reply.keys.length == 1)
@@ -250,18 +250,58 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers wi
 
   it should "with limit return only the first n keys of matching version " in {
     client.put(PutRequest(collectionA, aKey, Some(0), testData1))
-    client.put(PutRequest(collectionA, anotherKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aNotherKey, Some(0), testData1))
     client.put(PutRequest(collectionA, aThirdKey, Some(0), testData1))
     client.put(PutRequest(collectionA, aKey, Some(1), testData2))
-    client.put(PutRequest(collectionA, anotherKey, Some(1), testData2))
+    client.put(PutRequest(collectionA, aNotherKey, Some(1), testData2))
     client.put(PutRequest(collectionA, aThirdKey, Some(1), testData2))
     client.put(PutRequest(collectionA, aKey, Some(2), testData3))
-    client.put(PutRequest(collectionA, anotherKey, Some(2), testData3))
+    client.put(PutRequest(collectionA, aNotherKey, Some(2), testData3))
     client.put(PutRequest(collectionA, aThirdKey, Some(2), testData3))
     val reply = client.getMultipleKeys(GetMultipleKeysRequest(collectionA, None, None, Some(1), Some(2)))
     assert(reply.keys.length == 2)
     assert(reply.values.contains(testData2))
     assert(reply.actualVersions.contains(1))
+  }
+
+  it should "support pagination with startAfterKey" in {
+    client.put(PutRequest(collectionA, aKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aNotherKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aThirdKey, Some(0), testData1))
+    val reply = client.getMultipleKeys(GetMultipleKeysRequest(collectionA, Some(aKey), None, None, Some(2)))
+    assert(reply.keys.length == 2)
+    assert(reply.values.contains(testData1))
+    assert(reply.actualVersions.contains(0))
+  }
+
+  it should "support pagination with startAfterKey, with prefix and version" in {
+    client.put(PutRequest(collectionA, aKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aNotherKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aThirdKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aKey, Some(1), testData2))
+    client.put(PutRequest(collectionA, aNotherKey, Some(1), testData2))
+    client.put(PutRequest(collectionA, aThirdKey, Some(1), testData2))
+    client.put(PutRequest(collectionA, aKey, Some(2), testData3))
+    client.put(PutRequest(collectionA, aNotherKey, Some(2), testData3))
+    client.put(PutRequest(collectionA, aThirdKey, Some(2), testData3))
+    val reply = client.getMultipleKeys(GetMultipleKeysRequest(collectionA, Some(aKey), Some("a"), Some(1), Some(1)))
+    assert(reply.keys.length == 1)
+    assert(reply.values.contains(testData2))
+    assert(reply.actualVersions.contains(1))
+  }
+
+  it should "support pagination with startAfterKey, with prefix and version where no keys match the prefix" in {
+    client.put(PutRequest(collectionA, aKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aNotherKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aThirdKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aKey, Some(1), testData2))
+    client.put(PutRequest(collectionA, aNotherKey, Some(1), testData2))
+    client.put(PutRequest(collectionA, aThirdKey, Some(1), testData2))
+    client.put(PutRequest(collectionA, aKey, Some(2), testData3))
+    client.put(PutRequest(collectionA, aNotherKey, Some(2), testData3))
+    client.put(PutRequest(collectionA, aThirdKey, Some(2), testData3))
+    val reply = client.getMultipleKeys(GetMultipleKeysRequest(collectionA, Some(aKey), Some("BogusPrefix"), Some(1), Some(2)))
+    assert(reply.keys.isEmpty)
   }
 
   "Backup" should "create non-empty backup directory" in {
