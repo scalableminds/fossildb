@@ -232,7 +232,7 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers wi
     assert(reply.values.contains(testData2))
   }
 
-  it should "return keys of matching version, matching prefix (sorted alphabetically)" in {
+  it should "return keys of matching version, matching prefix" in {
     client.put(PutRequest(collectionA, aKey, Some(0), testData1))
     client.put(PutRequest(collectionA, aNotherKey, Some(0), testData1))
     client.put(PutRequest(collectionA, aThirdKey, Some(0), testData1))
@@ -242,8 +242,26 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers wi
     client.put(PutRequest(collectionA, aKey, Some(2), testData3))
     client.put(PutRequest(collectionA, aNotherKey, Some(2), testData3))
     client.put(PutRequest(collectionA, aThirdKey, Some(2), testData3))
-    val reply = client.getMultipleKeys(GetMultipleKeysRequest(collectionA, None, Some("aK"), Some(1)))
+    val reply = client.getMultipleKeys(GetMultipleKeysRequest(collectionA, None, Some("aN"), Some(1)))
     assert(reply.keys.length == 1)
+    assert(reply.keys.contains(aNotherKey))
+    assert(reply.values.contains(testData2))
+    assert(reply.actualVersions.contains(1))
+  }
+
+  it should "return keys of matching version, matching prefix even if it is exact match" in {
+    client.put(PutRequest(collectionA, aKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aNotherKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aThirdKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aKey, Some(1), testData2))
+    client.put(PutRequest(collectionA, aNotherKey, Some(1), testData2))
+    client.put(PutRequest(collectionA, aThirdKey, Some(1), testData2))
+    client.put(PutRequest(collectionA, aKey, Some(2), testData3))
+    client.put(PutRequest(collectionA, aNotherKey, Some(2), testData3))
+    client.put(PutRequest(collectionA, aThirdKey, Some(2), testData3))
+    val reply = client.getMultipleKeys(GetMultipleKeysRequest(collectionA, None, Some(aNotherKey), Some(1)))
+    assert(reply.keys.length == 1)
+    assert(reply.keys.contains(aNotherKey))
     assert(reply.values.contains(testData2))
     assert(reply.actualVersions.contains(1))
   }
