@@ -51,7 +51,7 @@ class FossilDBGrpcImpl(storeManager: StoreManager)
 
   override def getMultipleKeys(req: GetMultipleKeysRequest): Future[GetMultipleKeysReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
-    val (keys, values, versions) = store.getMultipleKeys(req.key, req.prefix, req.version, req.limit)
+    val (keys, values, versions) = store.getMultipleKeys(req.startAfterKey, req.prefix, req.version, req.limit)
     GetMultipleKeysReply(success = true, None, keys, values.map(ByteString.copyFrom), versions)
   } { errorMsg => GetMultipleKeysReply(success = false, errorMsg) }
 

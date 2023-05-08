@@ -5,13 +5,15 @@ import scala.util.Try
 
 
 case class VersionedKey(key: String, version: Long) {
-  override def toString: String = s"$key@${(~version).toHexString.toUpperCase}@$version"
+  override def toString: String = s"$key${VersionedKey.versionSeparator}${(~version).toHexString.toUpperCase}${VersionedKey.versionSeparator}$version"
 }
 
 object VersionedKey {
 
+  val versionSeparator: Char = '@'
+
   def apply(key: String): Option[VersionedKey] = {
-    val parts = key.split('@')
+    val parts = key.split(versionSeparator)
     for {
       key <- parts.headOption
       versionString <- parts.lastOption
@@ -91,8 +93,6 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
   def get(key: String, version: Option[Long] = None): Option[VersionedKeyValuePair[Array[Byte]]] =
     scanVersionValuePairs(key, version).toStream.headOption
 
-  def getUnderlying: RocksDBStore = underlying
-
   def getMultipleVersions(key: String, oldestVersion: Option[Long] = None, newestVersion: Option[Long] = None): (List[Array[Byte]], List[Long]) = {
 
     @tailrec
@@ -113,7 +113,7 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
 
   private def scanVersionValuePairs(key: String, version: Option[Long] = None): Iterator[VersionedKeyValuePair[Array[Byte]]] = {
     requireValidKey(key)
-    val prefix = s"$key@"
+    val prefix = s"$key${VersionedKey.versionSeparator}"
     underlying.scan(version.map(VersionedKey(key, _).toString).getOrElse(prefix), Some(prefix)).flatMap { pair =>
       VersionedKey(pair.key).map(VersionedKeyValuePair(_, pair.value))
     }
@@ -121,25 +121,44 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
 
   private def scanVersionsOnly(key: String, version: Option[Long] = None): Iterator[VersionedKey] = {
     requireValidKey(key)
-    val prefix = s"$key@"
+    val prefix = s"$key${VersionedKey.versionSeparator}"
     underlying.scanKeysOnly(version.map(VersionedKey(key, _).toString).getOrElse(prefix), Some(prefix)).flatMap { key =>
       VersionedKey(key)
     }
   }
 
-  def getMultipleKeys(key: String, prefix: Option[String] = None, version: Option[Long] = None, limit: Option[Int]): (Seq[String], Seq[Array[Byte]], Seq[Long]) = {
-    requireValidKey(key)
+  def getMultipleKeys(startAfterKey: Option[String], prefix: Option[String] = None, version: Option[Long] = None, limit: Option[Int]): (Seq[String], Seq[Array[Byte]], Seq[Long]) = {
+    startAfterKey.foreach(requireValidKey)
     prefix.foreach{ p => requireValidKey(p)}
-    val iterator: VersionFilterIterator = scanKeys(key, prefix, version)
-    val asSequence = iterator.take(limit.getOrElse(Int.MaxValue)).toSeq
-    val keys = asSequence.map(_.key)
-    val values = asSequence.map(_.value)
-    val versions = asSequence.map(_.version)
+    val iterator: VersionFilterIterator = scanKeys(startAfterKey, prefix, version)
+
+    /*
+       Note that seek in the underlying iterators either hits precisely or goes to the
+       lexicographically *next* key. To achieve correct behavior with startAfterKey,
+       we have to advance once in case of the exact hit.
+     */
+    val firstItemOpt: Option[VersionedKeyValuePair[Array[Byte]]] = if (iterator.hasNext) {
+      val firstItem = iterator.next()
+      if (startAfterKey.contains(firstItem.key)) {
+        None
+      } else {
+        Some(firstItem)
+      }
+    } else None
+
+    val limitPadded = limit.map(_ + 1).getOrElse(Int.MaxValue)
+    val asVector = iterator.take(limitPadded).toVector
+    val asSequenceAdvancedIfNeeded = firstItemOpt.map(_ +: asVector).getOrElse(asVector).take(limit.getOrElse(Int.MaxValue))
+    val keys = asSequenceAdvancedIfNeeded.map(_.key)
+    val values = asSequenceAdvancedIfNeeded.map(_.value)
+    val versions = asSequenceAdvancedIfNeeded.map(_.version)
     (keys, values, versions)
   }
 
-  private def scanKeys(key: String, prefix: Option[String] = None, version: Option[Long] = None): VersionFilterIterator =
-    new VersionFilterIterator(underlying.scan(key, prefix), version)
+  private def scanKeys(startAfterKey: Option[String], prefix: Option[String] = None, version: Option[Long] = None): VersionFilterIterator = {
+    val fullKey = startAfterKey.map(key => s"$key${VersionedKey.versionSeparator}").orElse(prefix).getOrElse("")
+    new VersionFilterIterator(underlying.scan(fullKey, prefix), version)
+  }
 
   def deleteMultipleVersions(key: String, oldestVersion: Option[Long] = None, newestVersion: Option[Long] = None): Unit = {
     @tailrec
@@ -178,6 +197,6 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
   }
 
   private def requireValidKey(key: String): Unit = {
-    require(!(key contains "@"), "keys cannot contain the char @")
+    require(!key.contains(VersionedKey.versionSeparator), s"keys cannot contain the char ${VersionedKey.versionSeparator}")
   }
 }
