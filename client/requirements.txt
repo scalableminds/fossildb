@@ -1,3 +1,5 @@
 argparse
 grpcio-tools
 grpcio-health-checking
+textual
+textual-dev

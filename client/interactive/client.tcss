@@ -1,0 +1,16 @@
+ListKeysWidget #list-keys {
+    layout: horizontal;
+    color: red;
+}
+
+#key-info {
+    width: 30%;
+}
+
+#key-info-label {
+    height: 50%;
+}
+
+Button {
+    width: 100%;
+}
