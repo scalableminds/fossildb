@@ -55,6 +55,13 @@ def getKey(stub, collection, key):
     assertSuccess(reply)
     return reply.value
 
+def getMultipleKeys(stub, collection, prefix, startAfterKey, limit):
+    if startAfterKey != "":
+        reply = stub.GetMultipleKeys(proto.GetMultipleKeysRequest(collection=collection,prefix=prefix, startAfterKey=startAfterKey, limit=limit))
+    else:
+        reply = stub.GetMultipleKeys(proto.GetMultipleKeysRequest(collection=collection,prefix=prefix, limit=limit))
+    assertSuccess(reply)
+    return reply.keys
 
 def listVersions(stub, collection, key):
     reply = stub.ListVersions(proto.ListVersionsRequest(collection=collection, key=key))

@@ -11,7 +11,7 @@ from textual.widgets import (
 from textual.containers import Horizontal, Vertical
 from textual.widget import Widget
 from rich.text import Text
-from db_connection import connect, listKeys, getKey, listVersions
+from db_connection import connect, listKeys, getKey, listVersions, getMultipleKeys
 
 # import logging
 
@@ -63,7 +63,7 @@ class KeyInfoWidget(Widget):
         try:
             versions = listVersions(stub, self.collection, key)
             log.write(Text("Versions:", style="bold magenta"))
-            ",".join(map(str, versions))
+            log.write(",".join(map(str, versions)))
         except Exception as e:
             log.write("Could not load versions: " + str(e))
 
@@ -104,6 +104,7 @@ class FossilDBClient(App):
     ]
 
     after_key = ""
+    prefix = ""
     collection = "volumeData"
     CSS_PATH = "client.tcss"
 
@@ -115,7 +116,7 @@ class FossilDBClient(App):
         """Create child widgets for the app."""
         yield Header()
         yield Input(placeholder="Select collection:", id="collection")
-        yield Input(placeholder="Start after key:", id="after_key")
+        yield Input(placeholder="Find keys with prefix: (leave empty to list all keys)", id="prefix")
         yield ListKeysWidget(id="list-keys", stub=self.stub)
 
         yield Footer()
@@ -124,8 +125,8 @@ class FossilDBClient(App):
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "collection":
             self.collection = event.input.value
-        if event.input.id == "after_key":
-            self.after_key = event.input.value
+        if event.input.id == "prefix":
+            self.prefix = event.input.value
         self.refresh_data()
 
     def refresh_data(self) -> None:
@@ -135,7 +136,10 @@ class FossilDBClient(App):
         table.clear(columns=True)
         table.add_column("key")
         try:
-            keys = listKeys(self.stub, self.collection, self.after_key, KEY_LIST_LIMIT)
+            if self.prefix != "":
+                keys = getMultipleKeys(self.stub, self.collection, self.prefix, self.after_key, KEY_LIST_LIMIT)
+            else:
+                keys = listKeys(self.stub, self.collection, self.after_key, KEY_LIST_LIMIT)
             for i, key in enumerate(keys):
                 label = Text(str(i), style="#B0FC38 italic")
                 table.add_row(key, label=label)
