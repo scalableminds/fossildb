@@ -1,4 +1,4 @@
-FROM python:3.6-stretch
+FROM python:3.9
 
 COPY src/main/protobuf /fossildb/src/main/protobuf
 COPY client /fossildb/client

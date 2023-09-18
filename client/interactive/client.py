@@ -116,7 +116,10 @@ class FossilDBClient(App):
         """Create child widgets for the app."""
         yield Header()
         yield Input(placeholder="Select collection:", id="collection")
-        yield Input(placeholder="Find keys with prefix: (leave empty to list all keys)", id="prefix")
+        yield Input(
+            placeholder="Find keys with prefix: (leave empty to list all keys)",
+            id="prefix",
+        )
         yield ListKeysWidget(id="list-keys", stub=self.stub)
 
         yield Footer()
@@ -137,9 +140,17 @@ class FossilDBClient(App):
         table.add_column("key")
         try:
             if self.prefix != "":
-                keys = getMultipleKeys(self.stub, self.collection, self.prefix, self.after_key, KEY_LIST_LIMIT)
+                keys = getMultipleKeys(
+                    self.stub,
+                    self.collection,
+                    self.prefix,
+                    self.after_key,
+                    KEY_LIST_LIMIT,
+                )
             else:
-                keys = listKeys(self.stub, self.collection, self.after_key, KEY_LIST_LIMIT)
+                keys = listKeys(
+                    self.stub, self.collection, self.after_key, KEY_LIST_LIMIT
+                )
             for i, key in enumerate(keys):
                 label = Text(str(i), style="#B0FC38 italic")
                 table.add_row(key, label=label)
