@@ -354,4 +354,30 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers wi
     assert(testData1 == reply.value)
   }
 
+  "ListVersions" should "list all versions" in {
+    client.put(PutRequest(collectionA, aKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aKey, Some(2), testData1))
+    client.put(PutRequest(collectionA, aKey, Some(3), testData1))
+    client.put(PutRequest(collectionA, aNotherKey, Some(0), testData1))
+    val reply = client.listVersions(ListVersionsRequest(collectionA, aKey))
+    assert(reply.versions.length == 3)
+    assert(reply.versions.contains(0))
+    assert(!reply.versions.contains(1))
+    assert(reply.versions.contains(2))
+    assert(reply.versions.contains(3))
+  }
+
+  "ListVersions" should "support pagination" in {
+    client.put(PutRequest(collectionA, aKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aKey, Some(1), testData1))
+    client.put(PutRequest(collectionA, aKey, Some(2), testData1))
+    client.put(PutRequest(collectionA, aKey, Some(3), testData1))
+    client.put(PutRequest(collectionA, aNotherKey, Some(0), testData1))
+    val reply = client.listVersions(ListVersionsRequest(collectionA, aKey, offset = Some(1), limit = Some(2)))
+    assert(reply.versions.length == 2)
+    assert(!reply.versions.contains(0))
+    assert(reply.versions.contains(1))
+    assert(reply.versions.contains(2))
+  }
+
 }
