@@ -14,19 +14,24 @@ def getVersionFromGit: String = {
   }
 }
 
+ThisBuild / scalacOptions ++= Seq(
+  "-feature",
+  "-deprecation"
+)
+
 version := getVersionFromGit
 
-scalaVersion := "2.12.15"
+scalaVersion := "2.13.12"
 
 libraryDependencies ++= Seq(
-  "ch.qos.logback" % "logback-classic" % "1.2.3",
-  "com.typesafe.scala-logging" %% "scala-logging" % "3.7.2",
-  "org.scalatest" % "scalatest_2.12" % "3.0.4" % "test",
+  "ch.qos.logback" % "logback-classic" % "1.4.7",
+  "com.typesafe.scala-logging" %% "scala-logging" % "3.9.5",
+  "org.scalatest" % "scalatest_2.13" % "3.2.15" % "test",
   "io.grpc" % "grpc-netty" % scalapb.compiler.Version.grpcJavaVersion,
   "io.grpc" % "grpc-services" % scalapb.compiler.Version.grpcJavaVersion,
   "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % scalapb.compiler.Version.scalapbVersion,
-  "org.rocksdb" % "rocksdbjni" % "5.11.3",
-  "com.github.scopt" %% "scopt" % "3.7.0"
+  "org.rocksdb" % "rocksdbjni" % "7.10.2",
+  "com.github.scopt" %% "scopt" % "4.1.0"
 )
 
 Compile / managedSourceDirectories += target.value / "protobuf-generated"
