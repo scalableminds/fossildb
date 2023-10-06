@@ -5,9 +5,9 @@ import org.rocksdb._
 
 import java.nio.file.{Files, Path}
 import java.util
-import scala.collection.JavaConverters._
 import scala.collection.mutable
 import scala.concurrent.Future
+import scala.jdk.CollectionConverters.{ListHasAsScala, BufferHasAsJava, SeqHasAsJava}
 import scala.language.postfixOps
 
 case class BackupInfo(id: Int, timestamp: Long, size: Long)

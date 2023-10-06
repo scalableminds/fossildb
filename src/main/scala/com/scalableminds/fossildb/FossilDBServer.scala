@@ -6,7 +6,7 @@ import io.grpc.health.v1.HealthCheckResponse
 import com.typesafe.scalalogging.LazyLogging
 import io.grpc.Server
 import io.grpc.netty.NettyServerBuilder
-import io.grpc.services.HealthStatusManager
+import io.grpc.protobuf.services.HealthStatusManager
 
 import scala.concurrent.ExecutionContext
 
@@ -17,7 +17,7 @@ class FossilDBServer(storeManager: StoreManager, port: Int, executionContext: Ex
 
   def start(): Unit = {
     healthStatusManager = new HealthStatusManager()
-    server = NettyServerBuilder.forPort(port).maxMessageSize(Int.MaxValue)
+    server = NettyServerBuilder.forPort(port).maxInboundMessageSize(Int.MaxValue)
       .addService(FossilDBGrpc.bindService(new FossilDBGrpcImpl(storeManager), executionContext))
       .addService(healthStatusManager.getHealthService)
       .build.start

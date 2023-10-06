@@ -73,14 +73,14 @@ class KeyOnlyIterator[T](underlying: RocksDBStore, startAfterKey: Option[String]
 
   override def hasNext: Boolean = {
     val it = underlying.scanKeysOnly(compositeKeyFor(currentKey), None)
-    if (it.hasNext && currentKey.isDefined && currentKey.contains(VersionedKey(it.peek).get.key)) it.next
+    if (it.hasNext && currentKey.isDefined && currentKey.contains(VersionedKey(it.peek).get.key)) it.next()
     it.hasNext
   }
 
   override def next(): String = {
     val it = underlying.scanKeysOnly(compositeKeyFor(currentKey), None)
-    if (it.hasNext && currentKey.isDefined && currentKey.contains(VersionedKey(it.peek).get.key)) it.next
-    val nextKey = VersionedKey(it.next).get.key
+    if (it.hasNext && currentKey.isDefined && currentKey.contains(VersionedKey(it.peek).get.key)) it.next()
+    val nextKey = VersionedKey(it.next()).get.key
     currentKey = Some(nextKey)
     nextKey
   }
@@ -91,7 +91,7 @@ class KeyOnlyIterator[T](underlying: RocksDBStore, startAfterKey: Option[String]
 class VersionedKeyValueStore(underlying: RocksDBStore) {
 
   def get(key: String, version: Option[Long] = None): Option[VersionedKeyValuePair[Array[Byte]]] =
-    scanVersionValuePairs(key, version).toStream.headOption
+    scanVersionValuePairs(key, version).nextOption()
 
   def getMultipleVersions(key: String, oldestVersion: Option[Long] = None, newestVersion: Option[Long] = None): (List[Array[Byte]], List[Long]) = {
 

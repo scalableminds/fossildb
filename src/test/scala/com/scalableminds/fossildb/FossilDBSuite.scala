@@ -1,18 +1,19 @@
 package com.scalableminds.fossildb
 
 import java.io.File
-import java.nio.file.{Files, Paths}
+import java.nio.file.Paths
 import com.google.protobuf.ByteString
 import com.scalableminds.fossildb.db.StoreManager
 import com.scalableminds.fossildb.proto.fossildbapi._
 import com.typesafe.scalalogging.LazyLogging
 import io.grpc.health.v1._
 import io.grpc.netty.NettyChannelBuilder
-import org.scalatest.{BeforeAndAfterEach, FlatSpec}
+import org.scalatest.BeforeAndAfterEach
+import org.scalatest.flatspec.AnyFlatSpec
 
 import scala.concurrent.ExecutionContext
 
-class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers with LazyLogging {
+class FossilDBSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHelpers with LazyLogging {
   private val testTempDir = "testData1"
   private val dataDir = Paths.get(testTempDir, "data")
   private val backupDir = Paths.get(testTempDir, "backup")
