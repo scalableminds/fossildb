@@ -58,7 +58,10 @@ lazy val buildInfoSettings = Seq(
       override def toString: String = {
         try {
           val extracted = new java.io.InputStreamReader(java.lang.Runtime.getRuntime.exec("git rev-parse HEAD").getInputStream)
-          new java.io.BufferedReader(extracted).readLine()
+          val str = new java.io.BufferedReader(extracted).readLine()
+          if (str == null) {
+            "get git hash failed"
+          } else str
         } catch {
           case t: Throwable => "get git hash failed"
         }
