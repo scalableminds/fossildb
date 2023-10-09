@@ -19,6 +19,10 @@ jobs:
           key: cache-{{ .Branch }}
 
       - run:
+         name: debug git output
+         command: docker-compose run -T -e CI=$CI sbt git rev-parse HEAD
+
+      - run:
           name: Build server
           command: docker-compose run -T -e CI=$CI sbt sbt assembly
 
