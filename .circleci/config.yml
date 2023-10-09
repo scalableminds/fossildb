@@ -4,7 +4,7 @@ jobs:
     machine:
       image: ubuntu-2004:202111-02
     environment:
-      SBT_VERSION_TAG: sbt-0.13.15_mongo-3.2.17_node-8.x_jdk-11
+      SBT_VERSION_TAG: master__6455790032
       USER_UID: 1000
       USER_GID: 1000
       TARGET_DIR: target/scala-2.13
