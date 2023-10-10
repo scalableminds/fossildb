@@ -34,7 +34,7 @@ class FossilDBSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHelpers
   private val aNotherKey = "aNotherKey"
   private val aThirdKey = "aThirdKey"
 
-  override def beforeEach: Unit = {
+  override def beforeEach(): Unit = {
     deleteRecursively(new File(testTempDir))
     new File(testTempDir).mkdir()
 
@@ -47,7 +47,7 @@ class FossilDBSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHelpers
     serverOpt.foreach(_.start())
   }
 
-  override def afterEach: Unit = {
+  override def afterEach(): Unit = {
     serverOpt.foreach(_.stop())
     deleteRecursively(new File(testTempDir))
   }

@@ -4,7 +4,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends gosu && rm -rf 
 RUN mkdir -p /fossildb
 WORKDIR /fossildb
 
-COPY target/scala-2.12/fossildb.jar .
+COPY target/scala-2.13/fossildb.jar .
 COPY fossildb .
 
 RUN groupadd -r fossildb \
@@ -13,7 +13,7 @@ RUN groupadd -r fossildb \
   && chmod 777 . \
   && chown -R fossildb .
 
-RUN GRPC_HEALTH_PROBE_VERSION=v0.2.0 && \
+RUN GRPC_HEALTH_PROBE_VERSION=v0.4.20 && \
   wget -qO/bin/grpc_health_probe https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/${GRPC_HEALTH_PROBE_VERSION}/grpc_health_probe-linux-amd64 && \
   chmod +x /bin/grpc_health_probe
 
