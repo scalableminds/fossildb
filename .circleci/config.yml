@@ -12,30 +12,12 @@ jobs:
       - checkout
 
       - run:
-          name: Prepare dependency folders
-          command: mkdir -p ~/.m2 ~/.ivy2 ~/.sbt
-
-      - restore_cache:
-          key: cache-{{ .Branch }}
-
-      - run:
-         name: debug git output
-         command: docker-compose run -T -e CI=$CI sbt bash -c "git config --global --add safe.directory /fossildb && git rev-parse HEAD"
-
-      - run:
           name: Build server
-          command: docker-compose run -T -e CI=$CI sbt bash -c "git config --global --add safe.directory /fossildb && sbt assembly"
+          command: docker-compose run -T -e CI=$CI sbt sbt assembly
 
       - run:
           name: Get FossilDB version
           command: docker-compose run -T sbt java -jar $TARGET_DIR/fossildb.jar --version > $TARGET_DIR/version
-
-      - save_cache:
-          key: cache-{{ .Branch }}
-          paths:
-            - "~/.m2"
-            - "~/.ivy2"
-            - "~/.sbt"
 
       - run:
           name: Build server docker image
