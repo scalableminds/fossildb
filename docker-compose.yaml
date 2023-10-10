@@ -36,6 +36,6 @@ services:
       - USER_GID
       - TZ
     working_dir: /fossildb
-    user: ${USER_UID:1000}:${USER_GID:1000}
+    user: ${USER_UID:-1000}:${USER_GID:-1000}
     volumes:
       - ".:/fossildb"
