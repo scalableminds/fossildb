@@ -20,7 +20,7 @@ jobs:
 
       - run:
          name: debug git output
-         command: docker-compose run -T -e CI=$CI sbt bash -c "git config --global --add safe.directory /fossildb && sbt assembly"
+         command: docker-compose run -T -e CI=$CI sbt bash -c "git config --global --add safe.directory /fossildb && git rev-parse HEAD"
 
       - run:
           name: Build server
