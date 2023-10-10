@@ -44,6 +44,8 @@ Compile / mainClass := Some("com.scalableminds.fossildb.FossilDB")
 
 assembly / assemblyMergeStrategy := {
   case x if x.endsWith("io.netty.versions.properties") => MergeStrategy.first
+  // compare https://stackoverflow.com/questions/54834125/sbt-assembly-deduplicate-module-info-class
+  case x if x.endsWith("module-info.class") => MergeStrategy.concat
   case x =>
     val oldStrategy = (assembly / assemblyMergeStrategy).value
     oldStrategy(x)
