@@ -1,18 +1,14 @@
 import argparse
+
+from db_connection import (connect, getKey, getMultipleKeys, listKeys,
+                           listVersions)
+from rich.text import Text
 from textual import on
 from textual.app import App, ComposeResult
-from textual.widgets import (
-    Button,
-    Header,
-    Footer,
-    Input,
-    DataTable,
-    RichLog,
-)
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widget import Widget
-from rich.text import Text
-from db_connection import connect, listKeys, getKey, listVersions, getMultipleKeys
+from textual.widgets import Button, DataTable, Footer, Header, Input, RichLog
 
 # import logging
 
@@ -53,7 +49,6 @@ class KeyInfoWidget(Widget):
         self.key = key
 
         self.query_one("#write-button").styles.visibility = "visible"
-        self.query_one("#delete-button").styles.visibility = "visible"
 
         log = self.query_one("#key-info-label")
 
@@ -80,8 +75,6 @@ class KeyInfoWidget(Widget):
     def on_button_pressed(self, event):
         if event.button.id == "write-button":
             self.write_key()
-        if event.button.id == "delete-button":
-            self.delete_key()
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -89,25 +82,40 @@ class KeyInfoWidget(Widget):
             writeButton = Button(label="Write data to out.bin", id="write-button")
             writeButton.styles.visibility = "hidden"
             yield writeButton
-            deleteButton = Button(label="Delete key", id="delete-button")
-            deleteButton.styles.visibility = "hidden"
-            yield deleteButton
 
 
 class FossilDBClient(App):
+
     """A Textual app to manage FossilDB databases."""
 
     BINDINGS = [
         ("d", "toggle_dark", "Toggle dark mode"),
         ("q", "quit", "Quit the client"),
         ("r", "refresh", "Refresh the data"),
-        ("k", "show_next", f"Show next {KEY_LIST_LIMIT} keys"),
+        Binding(
+            "pagedown,j",
+            "show_next",
+            f"Show next {KEY_LIST_LIMIT} keys",
+            priority=True,
+            show=True,
+        ),
+        Binding(
+            "pageup,k",
+            "show_prev",
+            f"Show previous {KEY_LIST_LIMIT} keys",
+            priority=True,
+            show=True,
+        ),
+        Binding("down", "next_key", "Select the next key", priority=True, show=False),
+        Binding("up", "prev_key", "Select the previous key", priority=True, show=False),
     ]
 
     after_key = ""
     prefix = ""
     collection = "volumeData"
     CSS_PATH = "client.tcss"
+
+    last_keys = [""]
 
     def __init__(self, stub, collection):
         super().__init__()
@@ -158,7 +166,7 @@ class FossilDBClient(App):
             for i, key in enumerate(keys):
                 label = Text(str(i), style="#B0FC38 italic")
                 table.add_row(key, label=label)
-            self.last_key = keys[-1]
+            self.last_keys.append(keys[-1])
             table.focus()
         except Exception as e:
             table.add_row("Could not load keys: " + str(e))
@@ -177,8 +185,38 @@ class FossilDBClient(App):
 
     def action_show_next(self) -> None:
         """An action to show the next KEY_LIST_LIMIT keys."""
-        self.after_key = self.last_key
+        self.after_key = self.last_keys[-1]
         self.refresh_data()
+
+    def action_show_prev(self) -> None:
+        """An action to show the previous KEY_LIST_LIMIT keys."""
+        if len(self.last_keys) > 2:
+            self.last_keys.pop()
+            self.last_keys.pop()
+            self.after_key = self.last_keys[-1]
+        self.refresh_data()
+
+    def action_next_key(self) -> None:
+        """An action to select the next key."""
+        table = self.query_one(DataTable)
+        current_row = table.cursor_coordinate.row
+        if current_row < len(table.rows) - 1:
+            table.cursor_coordinate = (current_row + 1, table.cursor_coordinate.column)
+        else:
+            self.action_show_next()
+
+    def action_prev_key(self) -> None:
+        """An action to select the previous key."""
+        table = self.query_one(DataTable)
+        current_row = table.cursor_coordinate.row
+        if current_row > 0:
+            table.cursor_coordinate = (current_row - 1, table.cursor_coordinate.column)
+        else:
+            self.action_show_prev()
+            table.cursor_coordinate = (
+                len(table.rows) - 1,
+                table.cursor_coordinate.column,
+            )
 
 
 def init_argument_parser():

@@ -1,9 +1,8 @@
-import grpc
 import sys
-
 
 import fossildbapi_pb2 as proto
 import fossildbapi_pb2_grpc as proto_rpc
+import grpc
 
 MAX_MESSAGE_LENGTH = 1073741824
 
