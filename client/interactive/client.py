@@ -7,8 +7,10 @@ from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.reactive import reactive
 from textual.widget import Widget
-from textual.widgets import Button, DataTable, Footer, Header, Input, RichLog
+from textual.widgets import (Button, DataTable, Footer, Header, Input, Label,
+                             RichLog)
 
 # import logging
 
@@ -42,13 +44,29 @@ class ListKeysWidget(Widget):
         self.refresh()
 
 
+class FileNameHint(Widget):
+    filename = reactive("none")
+
+    def render(self) -> str:
+        return f"Press the button above to save the value at the key in {self.filename}"
+
+
 class KeyInfoWidget(Widget):
     key = ""
+    key_save_filename = ""
+    versions = []
+
+    def sanitize_filename(self, name):
+        import re
+
+        s = str(name).strip().replace(" ", "_")
+        return re.sub(r"(?u)[^-\w.]", "", s)
 
     def update_key(self, key):
         self.key = key
 
         self.query_one("#write-button").styles.visibility = "visible"
+        self.query_one("#write-label").styles.visibility = "visible"
 
         log = self.query_one("#key-info-label")
 
@@ -57,18 +75,24 @@ class KeyInfoWidget(Widget):
         log.write(key)
 
         try:
-            versions = listVersions(stub, self.collection, key)
+            self.versions = listVersions(stub, self.collection, key)
             log.write(Text("Versions:", style="bold magenta"))
-            log.write(",".join(map(str, versions)))
+            log.write(",".join(map(str, self.versions)))
+            self.key_save_filename = self.sanitize_filename(
+                f"{self.collection}_{key}_{self.versions[-1]}"
+            )
+            self.query_one("#write-label").filename = self.key_save_filename
         except Exception as e:
             log.write("Could not load versions: " + str(e))
 
     def write_key(self):
         try:
-            value = getKey(stub, self.collection, self.key)
-            with open("out.bin", "wb") as f:
+            value = getKey(stub, self.collection, self.key, self.versions[-1])
+            with open(self.key_save_filename, "wb") as f:
                 f.write(value)
-            self.query_one("#key-info-label").write("Wrote data to out.bin")
+            self.query_one("#key-info-label").write(
+                f"Wrote data to {self.key_save_filename}"
+            )
         except Exception as e:
             self.query_one("#key-info-label").write("Could not write key: " + str(e))
 
@@ -79,9 +103,13 @@ class KeyInfoWidget(Widget):
     def compose(self) -> ComposeResult:
         with Vertical():
             yield RichLog(id="key-info-label", wrap=True)
-            writeButton = Button(label="Write data to out.bin", id="write-button")
+
+            writeButton = Button(label="Save latest version in file", id="write-button")
             writeButton.styles.visibility = "hidden"
+            writeLabel = FileNameHint(id="write-label")
+            writeLabel.styles.visibility = "hidden"
             yield writeButton
+            yield writeLabel
 
 
 class FossilDBClient(App):

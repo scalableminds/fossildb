@@ -48,8 +48,8 @@ def listKeys(stub, collection, startAfterKey, limit):
     return reply.keys
 
 
-def getKey(stub, collection, key):
-    reply = stub.Get(proto.GetRequest(collection=collection, key=key))
+def getKey(stub, collection, key, version):
+    reply = stub.Get(proto.GetRequest(collection=collection, key=key, version=version))
     assertSuccess(reply)
     return reply.value
 
