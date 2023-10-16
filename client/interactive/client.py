@@ -22,8 +22,6 @@ from textual.widgets import (Button, DataTable, Footer, Header, Input, Label,
 #     format="%(asctime)s - %(levelname)s: %(message)s",
 # )
 
-KEY_LIST_LIMIT = 20
-
 
 class ListKeysWidget(Widget):
     def __init__(self, stub, **kwargs):
@@ -123,14 +121,14 @@ class FossilDBClient(App):
         Binding(
             "pagedown,j",
             "show_next",
-            f"Show next {KEY_LIST_LIMIT} keys",
+            f"Show next page of keys",
             priority=True,
             show=True,
         ),
         Binding(
             "pageup,k",
             "show_prev",
-            f"Show previous {KEY_LIST_LIMIT} keys",
+            f"Show previous page of keys",
             priority=True,
             show=True,
         ),
@@ -145,10 +143,11 @@ class FossilDBClient(App):
 
     last_keys = [""]
 
-    def __init__(self, stub, collection):
+    def __init__(self, stub, collection, count):
         super().__init__()
         self.stub = stub
         self.collection = collection
+        self.key_list_limit = int(count)
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
@@ -185,11 +184,11 @@ class FossilDBClient(App):
                     self.collection,
                     self.prefix,
                     self.after_key,
-                    KEY_LIST_LIMIT,
+                    self.key_list_limit,
                 )
             else:
                 keys = listKeys(
-                    self.stub, self.collection, self.after_key, KEY_LIST_LIMIT
+                    self.stub, self.collection, self.after_key, self.key_list_limit
                 )
             for i, key in enumerate(keys):
                 label = Text(str(i), style="#B0FC38 italic")
@@ -212,12 +211,12 @@ class FossilDBClient(App):
         self.refresh_data()
 
     def action_show_next(self) -> None:
-        """An action to show the next KEY_LIST_LIMIT keys."""
+        """An action to show the next key_list_limit keys."""
         self.after_key = self.last_keys[-1]
         self.refresh_data()
 
     def action_show_prev(self) -> None:
-        """An action to show the previous KEY_LIST_LIMIT keys."""
+        """An action to show the previous key_list_limit keys."""
         if len(self.last_keys) > 2:
             self.last_keys.pop()
             self.last_keys.pop()
@@ -240,11 +239,12 @@ class FossilDBClient(App):
         if current_row > 0:
             table.cursor_coordinate = (current_row - 1, table.cursor_coordinate.column)
         else:
-            self.action_show_prev()
-            table.cursor_coordinate = (
-                len(table.rows) - 1,
-                table.cursor_coordinate.column,
-            )
+            if self.after_key != "":
+                self.action_show_prev()
+                table.cursor_coordinate = (
+                    len(table.rows) - 1,
+                    table.cursor_coordinate.column,
+                )
 
 
 def init_argument_parser():
@@ -252,6 +252,7 @@ def init_argument_parser():
     parser.add_argument("-p", "--port", help="fossildb port", default="7155")
     parser.add_argument("-i", "--ip", help="fossildb ip", default="localhost")
     parser.add_argument("-c", "--collection", help="collection to use", default="")
+    parser.add_argument("-n", "--count", help="number of keys to list", default=40)
     return parser
 
 
@@ -259,5 +260,5 @@ if __name__ == "__main__":
     parser = init_argument_parser()
     args = parser.parse_args()
     stub = connect(args.ip, args.port)
-    app = FossilDBClient(stub, args.collection)
+    app = FossilDBClient(stub, args.collection, args.count)
     app.run()
