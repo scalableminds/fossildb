@@ -58,7 +58,7 @@ class KeyInfoWidget(Widget):
         import re
 
         s = str(name).strip().replace(" ", "_")
-        return re.sub(r"(?u)[^-\w.]", "", s)
+        return re.sub(r"(?u)[^-\w.]", "_", s)
 
     def update_key(self, key):
         self.key = key
@@ -71,6 +71,9 @@ class KeyInfoWidget(Widget):
         log.clear()
         log.write(Text("Key:", style="bold magenta"))
         log.write(key)
+
+        if key == "More keys on the next page...":
+            return
 
         try:
             self.versions = listVersions(stub, self.collection, key)
@@ -119,17 +122,29 @@ class FossilDBClient(App):
         ("q", "quit", "Quit the client"),
         ("r", "refresh", "Refresh the data"),
         Binding(
-            "pagedown,j",
+            "pagedown",
             "show_next",
             f"Show next page of keys",
             priority=True,
             show=True,
         ),
         Binding(
-            "pageup,k",
+            "j",
+            "show_next",
+            f"Show next page of keys",
+            show=True,
+        ),
+        Binding(
+            "pageup",
             "show_prev",
             f"Show previous page of keys",
             priority=True,
+            show=True,
+        ),
+        Binding(
+            "k",
+            "show_prev",
+            f"Show previous page of keys",
             show=True,
         ),
         Binding("down", "next_key", "Select the next key", priority=True, show=False),
@@ -184,15 +199,25 @@ class FossilDBClient(App):
                     self.collection,
                     self.prefix,
                     self.after_key,
-                    self.key_list_limit,
+                    self.key_list_limit + 1,  # +1 to check if there are more keys
                 )
             else:
                 keys = listKeys(
-                    self.stub, self.collection, self.after_key, self.key_list_limit
+                    self.stub, self.collection, self.after_key, self.key_list_limit + 1
                 )
+            overlength = False
+            if len(keys) > self.key_list_limit:
+                keys = keys[:-1]
+                overlength = True
+
             for i, key in enumerate(keys):
                 label = Text(str(i), style="#B0FC38 italic")
                 table.add_row(key, label=label)
+            if overlength:
+                table.add_row(
+                    "More keys on the next page...",
+                    label=Text("...", style="#B0FC38 italic"),
+                )
             self.last_keys.append(keys[-1])
             table.focus()
         except Exception as e:
@@ -227,7 +252,7 @@ class FossilDBClient(App):
         """An action to select the next key."""
         table = self.query_one(DataTable)
         current_row = table.cursor_coordinate.row
-        if current_row < len(table.rows) - 1:
+        if current_row < self.key_list_limit - 1:
             table.cursor_coordinate = (current_row + 1, table.cursor_coordinate.column)
         else:
             self.action_show_next()
@@ -242,15 +267,19 @@ class FossilDBClient(App):
             if self.after_key != "":
                 self.action_show_prev()
                 table.cursor_coordinate = (
-                    len(table.rows) - 1,
+                    len(table.rows) - 2,  # -1 for last row, -1 for the More keys row
                     table.cursor_coordinate.column,
                 )
 
 
 def init_argument_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-p", "--port", help="fossildb port", default="7155")
-    parser.add_argument("-i", "--ip", help="fossildb ip", default="localhost")
+    parser.add_argument(
+        "host",
+        help="fossildb host and ip, e.g. localhost:7155",
+        default="localhost:7155",
+        nargs="?",
+    )
     parser.add_argument("-c", "--collection", help="collection to use", default="")
     parser.add_argument("-n", "--count", help="number of keys to list", default=40)
     return parser
@@ -259,6 +288,6 @@ def init_argument_parser():
 if __name__ == "__main__":
     parser = init_argument_parser()
     args = parser.parse_args()
-    stub = connect(args.ip, args.port)
+    stub = connect(args.host)
     app = FossilDBClient(stub, args.collection, args.count)
     app.run()

@@ -7,16 +7,16 @@ import grpc
 MAX_MESSAGE_LENGTH = 1073741824
 
 
-def connect(ip, port):
+def connect(host):
     channel = grpc.insecure_channel(
-        "{}:{}".format(ip, port),
+        host,
         options=[
             ("grpc.max_send_message_length", MAX_MESSAGE_LENGTH),
             ("grpc.max_receive_message_length", MAX_MESSAGE_LENGTH),
         ],
     )
     stub = proto_rpc.FossilDBStub(channel)
-    testHealth(stub, "destination fossildb at {}:{}".format(ip, port))
+    testHealth(stub, "destination fossildb at {}".format(host))
     return stub
 
 
