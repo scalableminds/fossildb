@@ -1,18 +1,19 @@
 package com.scalableminds.fossildb
 
 import java.io.File
-import java.nio.file.{Files, Paths}
+import java.nio.file.Paths
 import com.google.protobuf.ByteString
 import com.scalableminds.fossildb.db.StoreManager
 import com.scalableminds.fossildb.proto.fossildbapi._
 import com.typesafe.scalalogging.LazyLogging
 import io.grpc.health.v1._
 import io.grpc.netty.NettyChannelBuilder
-import org.scalatest.{BeforeAndAfterEach, FlatSpec}
+import org.scalatest.BeforeAndAfterEach
+import org.scalatest.flatspec.AnyFlatSpec
 
 import scala.concurrent.ExecutionContext
 
-class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers with LazyLogging {
+class FossilDBSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHelpers with LazyLogging {
   private val testTempDir = "testData1"
   private val dataDir = Paths.get(testTempDir, "data")
   private val backupDir = Paths.get(testTempDir, "backup")
@@ -33,7 +34,7 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers wi
   private val aNotherKey = "aNotherKey"
   private val aThirdKey = "aThirdKey"
 
-  override def beforeEach: Unit = {
+  override def beforeEach(): Unit = {
     deleteRecursively(new File(testTempDir))
     new File(testTempDir).mkdir()
 
@@ -46,7 +47,7 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers wi
     serverOpt.foreach(_.start())
   }
 
-  override def afterEach: Unit = {
+  override def afterEach(): Unit = {
     serverOpt.foreach(_.stop())
     deleteRecursively(new File(testTempDir))
   }
@@ -352,6 +353,32 @@ class FossilDBSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers wi
     client.restoreFromBackup(RestoreFromBackupRequest())
     val reply = client.get(GetRequest(collectionA, aKey, Some(0)))
     assert(testData1 == reply.value)
+  }
+
+  "ListVersions" should "list all versions" in {
+    client.put(PutRequest(collectionA, aKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aKey, Some(2), testData1))
+    client.put(PutRequest(collectionA, aKey, Some(3), testData1))
+    client.put(PutRequest(collectionA, aNotherKey, Some(0), testData1))
+    val reply = client.listVersions(ListVersionsRequest(collectionA, aKey))
+    assert(reply.versions.length == 3)
+    assert(reply.versions.contains(0))
+    assert(!reply.versions.contains(1))
+    assert(reply.versions.contains(2))
+    assert(reply.versions.contains(3))
+  }
+
+  "ListVersions" should "support pagination" in {
+    client.put(PutRequest(collectionA, aKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aKey, Some(1), testData1))
+    client.put(PutRequest(collectionA, aKey, Some(2), testData1))
+    client.put(PutRequest(collectionA, aKey, Some(3), testData1))
+    client.put(PutRequest(collectionA, aNotherKey, Some(0), testData1))
+    val reply = client.listVersions(ListVersionsRequest(collectionA, aKey, offset = Some(1), limit = Some(2)))
+    assert(reply.versions.length == 2)
+    assert(!reply.versions.contains(0))
+    assert(reply.versions.contains(1))
+    assert(reply.versions.contains(2))
   }
 
 }

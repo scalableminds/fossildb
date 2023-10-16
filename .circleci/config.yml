@@ -4,19 +4,12 @@ jobs:
     machine:
       image: ubuntu-2004:202111-02
     environment:
-      SBT_VERSION_TAG: sbt-0.13.15_mongo-3.2.17_node-8.x_jdk-8
+      SBT_VERSION_TAG: master__6469160879
       USER_UID: 1000
       USER_GID: 1000
-      TARGET_DIR: target/scala-2.12
+      TARGET_DIR: target/scala-2.13
     steps:
       - checkout
-
-      - run:
-          name: Prepare dependency folders
-          command: mkdir -p ~/.m2 ~/.ivy2 ~/.sbt
-
-      - restore_cache:
-          key: cache-{{ .Branch }}
 
       - run:
           name: Build server
@@ -25,13 +18,6 @@ jobs:
       - run:
           name: Get FossilDB version
           command: docker-compose run -T sbt java -jar $TARGET_DIR/fossildb.jar --version > $TARGET_DIR/version
-
-      - save_cache:
-          key: cache-{{ .Branch }}
-          paths:
-            - "~/.m2"
-            - "~/.ivy2"
-            - "~/.sbt"
 
       - run:
           name: Build server docker image
