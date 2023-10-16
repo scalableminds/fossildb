@@ -2,16 +2,16 @@ package com.scalableminds.fossildb
 
 import java.io.File
 import java.nio.file.Paths
-
 import com.scalableminds.fossildb.db.StoreManager
 import org.rocksdb.{ColumnFamilyDescriptor, DBOptions, Env}
-import org.scalatest.{BeforeAndAfterEach, FlatSpec}
+import org.scalatest.BeforeAndAfterEach
+import org.scalatest.flatspec.AnyFlatSpec
 
 import scala.collection.mutable
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters.BufferHasAsJava
 
 
-class RocksOptionsSuite extends FlatSpec with BeforeAndAfterEach with TestHelpers {
+class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHelpers {
 
   private val testTempDir = "testData2"
   private val dataDir = Paths.get(testTempDir, "data")
@@ -23,12 +23,12 @@ class RocksOptionsSuite extends FlatSpec with BeforeAndAfterEach with TestHelper
   private val columnFamilies = List(collectionA, collectionB)
 
 
-  override def beforeEach: Unit = {
+  override def beforeEach(): Unit = {
     deleteRecursively(new File(testTempDir))
     new File(testTempDir).mkdir()
   }
 
-  override def afterEach: Unit = {
+  override def afterEach(): Unit = {
     deleteRecursively(new File(testTempDir))
   }
 

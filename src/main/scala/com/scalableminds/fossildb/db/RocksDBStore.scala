@@ -5,9 +5,9 @@ import org.rocksdb._
 
 import java.nio.file.{Files, Path}
 import java.util
-import scala.collection.JavaConverters._
 import scala.collection.mutable
 import scala.concurrent.Future
+import scala.jdk.CollectionConverters.{ListHasAsScala, BufferHasAsJava, SeqHasAsJava}
 import scala.language.postfixOps
 
 case class BackupInfo(id: Int, timestamp: Long, size: Long)
@@ -56,7 +56,7 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
       Files.createDirectories(backupDir)
 
     RocksDB.loadLibrary()
-    val backupEngine = BackupEngine.open(Env.getDefault, new BackupableDBOptions(backupDir.toString))
+    val backupEngine = BackupEngine.open(Env.getDefault, new BackupEngineOptions(backupDir.toString))
     backupEngine.createNewBackup(db)
     backupEngine.purgeOldBackups(1)
     backupEngine.getBackupInfo.asScala.headOption.map(info => BackupInfo(info.backupId, info.timestamp, info.size))
@@ -66,7 +66,7 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     logger.info("Restoring from backup. RocksDB temporarily unavailable")
     close()
     RocksDB.loadLibrary()
-    val backupEngine = BackupEngine.open(Env.getDefault, new BackupableDBOptions(backupDir.toString))
+    val backupEngine = BackupEngine.open(Env.getDefault, new BackupEngineOptions(backupDir.toString))
     backupEngine.restoreDbFromLatestBackup(dataDir.toString, dataDir.toString, new RestoreOptions(true))
     logger.info("Restoring from backup complete. Reopening RocksDB")
   }
@@ -101,7 +101,7 @@ class RocksDBKeyIterator(it: RocksIterator, prefix: Option[String]) extends Iter
 
   override def hasNext: Boolean = it.isValid && prefix.forall(it.key().startsWith(_))
 
-  override def next: String = {
+  override def next(): String = {
     val key = new String(it.key().map(_.toChar))
     it.next()
     key
@@ -117,7 +117,7 @@ class RocksDBIterator(it: RocksIterator, prefix: Option[String]) extends Iterato
 
   override def hasNext: Boolean = it.isValid && prefix.forall(it.key().startsWith(_))
 
-  override def next: KeyValuePair[Array[Byte]] = {
+  override def next(): KeyValuePair[Array[Byte]] = {
     val value = KeyValuePair(new String(it.key().map(_.toChar)), it.value())
     it.next()
     value

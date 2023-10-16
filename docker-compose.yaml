@@ -36,8 +36,6 @@ services:
       - USER_GID
       - TZ
     working_dir: /fossildb
+    user: ${USER_UID:-1000}:${USER_GID:-1000}
     volumes:
       - ".:/fossildb"
-      - "~/.m2:/home/sbt-user/.m2"
-      - "~/.ivy2:/home/sbt-user/.ivy2"
-      - "~/.sbt:/home/sbt-user/.sbt"
