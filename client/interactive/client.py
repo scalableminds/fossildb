@@ -1,3 +1,4 @@
+import argparse
 from textual import on
 from textual.app import App, ComposeResult
 from textual.widgets import (
@@ -108,14 +109,17 @@ class FossilDBClient(App):
     collection = "volumeData"
     CSS_PATH = "client.tcss"
 
-    def __init__(self, stub):
+    def __init__(self, stub, collection):
         super().__init__()
         self.stub = stub
+        self.collection = collection
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
         yield Header()
-        yield Input(placeholder="Select collection:", id="collection")
+        yield Input(
+            placeholder="Select collection:", id="collection", value=self.collection
+        )
         yield Input(
             placeholder="Find keys with prefix: (leave empty to list all keys)",
             id="prefix",
@@ -177,7 +181,17 @@ class FossilDBClient(App):
         self.refresh_data()
 
 
+def init_argument_parser():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-p", "--port", help="fossildb port", default="7155")
+    parser.add_argument("-i", "--ip", help="fossildb ip", default="localhost")
+    parser.add_argument("-c", "--collection", help="collection to use", default="")
+    return parser
+
+
 if __name__ == "__main__":
-    stub = connect()
-    app = FossilDBClient(stub)
+    parser = init_argument_parser()
+    args = parser.parse_args()
+    stub = connect(args.ip, args.port)
+    app = FossilDBClient(stub, args.collection)
     app.run()

@@ -8,17 +8,16 @@ import fossildbapi_pb2_grpc as proto_rpc
 MAX_MESSAGE_LENGTH = 1073741824
 
 
-def connect():
-    port = 7155
+def connect(ip, port):
     channel = grpc.insecure_channel(
-        "localhost:{}".format(port),
+        "{}:{}".format(ip, port),
         options=[
             ("grpc.max_send_message_length", MAX_MESSAGE_LENGTH),
             ("grpc.max_receive_message_length", MAX_MESSAGE_LENGTH),
         ],
     )
     stub = proto_rpc.FossilDBStub(channel)
-    testHealth(stub, "destination fossildb at {}".format(port))
+    testHealth(stub, "destination fossildb at {}:{}".format(ip, port))
     return stub
 
 
