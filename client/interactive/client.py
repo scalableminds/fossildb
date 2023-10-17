@@ -12,16 +12,6 @@ from textual.widget import Widget
 from textual.widgets import (Button, DataTable, Footer, Header, Input, Label,
                              RichLog)
 
-# import logging
-
-# logFile = "sample.log"
-# logging.basicConfig(
-#     filename=logFile,
-#     filemode="a",
-#     level=logging.DEBUG,
-#     format="%(asctime)s - %(levelname)s: %(message)s",
-# )
-
 
 class ListKeysWidget(Widget):
     def __init__(self, stub, **kwargs):
@@ -46,7 +36,7 @@ class FileNameHint(Widget):
     filename = reactive("none")
 
     def render(self) -> str:
-        return f"Press the button above to save the value at the key in {self.filename}"
+        return f"Press the button above to download the value for the selected key to {self.filename}"
 
 
 class KeyInfoWidget(Widget):
