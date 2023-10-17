@@ -3,3 +3,5 @@ __pycache__
 
 fossildbapi_pb2_grpc.py
 fossildbapi_pb2.py
+
+env
