@@ -67,6 +67,7 @@ class KeyInfoWidget(Widget):
 
         try:
             self.versions = listVersions(stub, self.collection, key)
+            self.versions.sort()
             log.write(Text("Versions:", style="bold magenta"))
             log.write(",".join(map(str, self.versions)))
             self.key_save_filename = self.sanitize_filename(
