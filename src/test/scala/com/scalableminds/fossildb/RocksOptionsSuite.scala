@@ -3,7 +3,7 @@ package com.scalableminds.fossildb
 import java.io.File
 import java.nio.file.Paths
 import com.scalableminds.fossildb.db.StoreManager
-import org.rocksdb.{ColumnFamilyDescriptor, DBOptions, Env}
+import org.rocksdb.{ColumnFamilyDescriptor, ConfigOptions, DBOptions, Env}
 import org.scalatest.BeforeAndAfterEach
 import org.scalatest.flatspec.AnyFlatSpec
 
@@ -42,9 +42,10 @@ class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHel
     val options = new DBOptions()
       .setStatsDumpPeriodSec(100)
     val cfListRef: mutable.Buffer[ColumnFamilyDescriptor] = mutable.Buffer()
+    val configOptions = new ConfigOptions()
     // if successful, the rocksdb writes the loaded options to a file that can then be retreived with loadLatestOptions
     // we test that that one now includes the value 700 from the file above, rather than the 100 specified as a default
-    org.rocksdb.OptionsUtil.loadLatestOptions(dataDir.toString, Env.getDefault, options, cfListRef.asJava)
+    org.rocksdb.OptionsUtil.loadLatestOptions(configOptions, dataDir.toString, options, cfListRef.asJava)
     assert(options.statsDumpPeriodSec() == 700)
     storeManager.close
   }

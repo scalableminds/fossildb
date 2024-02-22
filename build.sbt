@@ -30,7 +30,7 @@ libraryDependencies ++= Seq(
   "io.grpc" % "grpc-netty" % scalapb.compiler.Version.grpcJavaVersion,
   "io.grpc" % "grpc-services" % scalapb.compiler.Version.grpcJavaVersion,
   "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % scalapb.compiler.Version.scalapbVersion,
-  "org.rocksdb" % "rocksdbjni" % "7.10.2",
+  "org.rocksdb" % "rocksdbjni" % "8.10.0",
   "com.github.scopt" %% "scopt" % "4.1.0"
 )
 
