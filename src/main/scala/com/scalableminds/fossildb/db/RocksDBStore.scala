@@ -26,7 +26,8 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     val cfListRef: mutable.Buffer[ColumnFamilyDescriptor] = mutable.Buffer()
     optionsFilePathOpt.foreach { optionsFilePath =>
       try {
-        org.rocksdb.OptionsUtil.loadOptionsFromFile(optionsFilePath, options, cfListRef.asJava)
+        val configOptions = new ConfigOptions()
+        org.rocksdb.OptionsUtil.loadOptionsFromFile(configOptions, optionsFilePath, options, cfListRef.asJava)
         logger.info("successfully loaded rocksdb options from " + optionsFilePath)
       } catch {
         case e: Exception =>
