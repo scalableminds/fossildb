@@ -1,6 +1,5 @@
 package com.scalableminds.fossildb.db
 
-import com.scalableminds.fossildb.CloseableIterator
 import com.typesafe.scalalogging.LazyLogging
 import org.rocksdb._
 
@@ -87,11 +86,10 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     val newManager = new RocksDBManager(newDataDir, columnFamilies, newOptionsFilePathOpt)
     newManager.columnFamilyHandles.foreach { case (name, handle) =>
       val store = getStoreForColumnFamily(name).get
-      val rawIt = store.getRawIterator
-      val dataIterator = RocksDBStore.scan(rawIt, "", None)
-      dataIterator.foreach(el => newManager.db.put(handle, el.key.getBytes, el.value))
-      println("close iterator")
-      rawIt.close()
+      store.withRawRocksIterator { rawIt =>
+        val dataIterator = RocksDBStore.scan(rawIt, "", None)
+        dataIterator.foreach(el => newManager.db.put(handle, el.key.getBytes, el.value))
+      }
     }
     logger.info("Writing data completed. Start compaction")
     newManager.db.compactRange()
@@ -134,9 +132,13 @@ class RocksDBIterator(it: RocksIterator, prefix: Option[String]) extends Iterato
 
 class RocksDBStore(db: RocksDB, handle: ColumnFamilyHandle) extends LazyLogging {
 
-  def getRawIterator: RocksIterator = {
-    println("creating iterator")
-    db.newIterator(handle)
+  def withRawRocksIterator[T](block: RocksIterator => T): T = {
+    val rawIt = db.newIterator(handle)
+    try {
+      block(rawIt)
+    } finally {
+      rawIt.close()
+    }
   }
 
   def get(key: String): Array[Byte] = {

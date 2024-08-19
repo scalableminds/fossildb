@@ -2,22 +2,15 @@ package com.scalableminds.fossildb
 
 import java.io.{PrintWriter, StringWriter}
 import com.google.protobuf.ByteString
-import com.scalableminds.fossildb.db.{StoreManager, VersionedKeyValueStore}
+import com.scalableminds.fossildb.db.StoreManager
 import com.scalableminds.fossildb.proto.fossildbapi._
 import scalapb.GeneratedMessage
 import com.typesafe.scalalogging.LazyLogging
-import org.rocksdb.RocksIterator
 
 import scala.concurrent.Future
 
-trait RawIteratorHelper {
-
-
-}
-
 class FossilDBGrpcImpl(storeManager: StoreManager)
   extends FossilDBGrpc.FossilDB
-    with RawIteratorHelper
     with LazyLogging {
 
   override def health(req: HealthRequest): Future[HealthReply] = withExceptionHandler(req) {

@@ -92,15 +92,7 @@ class KeyOnlyIterator[T](rawIt: RocksIterator, startAfterKey: Option[String]) ex
 
 class VersionedKeyValueStore(underlying: RocksDBStore) {
 
-  def withRawRocksIterator[T](block: RocksIterator => T): T = {
-    val rawIt = underlying.getRawIterator
-    val res = block(rawIt)
-
-    println("close iterator")
-    rawIt.close()
-    res
-    // TODO error handling
-  }
+  def withRawRocksIterator[T](block: RocksIterator => T): T = underlying.withRawRocksIterator(block)
 
   def get(rawIt: RocksIterator, key: String, version: Option[Long] = None): Option[VersionedKeyValuePair[Array[Byte]]] =
     scanVersionValuePairs(rawIt, key, version).nextOption()
