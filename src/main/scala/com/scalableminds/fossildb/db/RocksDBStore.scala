@@ -86,8 +86,8 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     val newManager = new RocksDBManager(newDataDir, columnFamilies, newOptionsFilePathOpt)
     newManager.columnFamilyHandles.foreach { case (name, handle) =>
       val store = getStoreForColumnFamily(name).get
-      store.withRawRocksIterator { rawIt =>
-        val dataIterator = RocksDBStore.scan(rawIt, "", None)
+      store.withRawRocksIterator { rocksIt =>
+        val dataIterator = RocksDBStore.scan(rocksIt, "", None)
         dataIterator.foreach(el => newManager.db.put(handle, el.key.getBytes, el.value))
       }
     }
@@ -133,11 +133,11 @@ class RocksDBIterator(it: RocksIterator, prefix: Option[String]) extends Iterato
 class RocksDBStore(db: RocksDB, handle: ColumnFamilyHandle) extends LazyLogging {
 
   def withRawRocksIterator[T](block: RocksIterator => T): T = {
-    val rawIt = db.newIterator(handle)
+    val rocksIt = db.newIterator(handle)
     try {
-      block(rawIt)
+      block(rocksIt)
     } finally {
-      rawIt.close()
+      rocksIt.close()
     }
   }
 
@@ -157,14 +157,14 @@ class RocksDBStore(db: RocksDB, handle: ColumnFamilyHandle) extends LazyLogging 
 
 object RocksDBStore {
 
-  def scan(it: RocksIterator, key: String, prefix: Option[String]): RocksDBIterator = {
-    it.seek(key.getBytes())
-    new RocksDBIterator(it, prefix)
+  def scan(rocksIt: RocksIterator, key: String, prefix: Option[String]): RocksDBIterator = {
+    rocksIt.seek(key.getBytes())
+    new RocksDBIterator(rocksIt, prefix)
   }
 
-  def scanKeysOnly(it: RocksIterator, key: String, prefix: Option[String]): RocksDBKeyIterator = {
-    it.seek(key.getBytes())
-    new RocksDBKeyIterator(it, prefix)
+  def scanKeysOnly(rocksIt: RocksIterator, key: String, prefix: Option[String]): RocksDBKeyIterator = {
+    rocksIt.seek(key.getBytes())
+    new RocksDBKeyIterator(rocksIt, prefix)
   }
 
 }
