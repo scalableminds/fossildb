@@ -1,17 +1,23 @@
 package com.scalableminds.fossildb
 
 import java.io.{PrintWriter, StringWriter}
-
 import com.google.protobuf.ByteString
-import com.scalableminds.fossildb.db.StoreManager
+import com.scalableminds.fossildb.db.{StoreManager, VersionedKeyValueStore}
 import com.scalableminds.fossildb.proto.fossildbapi._
 import scalapb.GeneratedMessage
 import com.typesafe.scalalogging.LazyLogging
+import org.rocksdb.RocksIterator
 
 import scala.concurrent.Future
 
+trait RawIteratorHelper {
+
+
+}
+
 class FossilDBGrpcImpl(storeManager: StoreManager)
   extends FossilDBGrpc.FossilDB
+    with RawIteratorHelper
     with LazyLogging {
 
   override def health(req: HealthRequest): Future[HealthReply] = withExceptionHandler(req) {
@@ -20,7 +26,7 @@ class FossilDBGrpcImpl(storeManager: StoreManager)
 
   override def get(req: GetRequest): Future[GetReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
-    val versionedKeyValuePairOpt = store.get(req.key, req.version)
+    val versionedKeyValuePairOpt = store.withRawRocksIterator{rawIt => store.get(rawIt, req.key, req.version)}
     versionedKeyValuePairOpt match {
       case Some(pair) => GetReply(success = true, None, ByteString.copyFrom(pair.value), pair.version)
       case None =>
@@ -31,7 +37,7 @@ class FossilDBGrpcImpl(storeManager: StoreManager)
 
   override def put(req: PutRequest): Future[PutReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
-    val version = req.version.getOrElse(store.get(req.key, None).map(_.version + 1).getOrElse(0L))
+    val version = store.withRawRocksIterator{rawIt => req.version.getOrElse(store.get(rawIt, req.key, None).map(_.version + 1).getOrElse(0L))}
     require(version >= 0, "Version numbers must be non-negative")
     store.put(req.key, version, req.value.toByteArray)
     PutReply(success = true)
@@ -45,31 +51,31 @@ class FossilDBGrpcImpl(storeManager: StoreManager)
 
   override def getMultipleVersions(req: GetMultipleVersionsRequest): Future[GetMultipleVersionsReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
-    val (values, versions) = store.getMultipleVersions(req.key, req.oldestVersion, req.newestVersion)
+    val (values, versions) = store.withRawRocksIterator{rawIt => store.getMultipleVersions(rawIt, req.key, req.oldestVersion, req.newestVersion)}
     GetMultipleVersionsReply(success = true, None, values.map(ByteString.copyFrom), versions)
   } { errorMsg => GetMultipleVersionsReply(success = false, errorMsg) }
 
   override def getMultipleKeys(req: GetMultipleKeysRequest): Future[GetMultipleKeysReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
-    val (keys, values, versions) = store.getMultipleKeys(req.startAfterKey, req.prefix, req.version, req.limit)
+    val (keys, values, versions) = store.withRawRocksIterator{rawIt => store.getMultipleKeys(rawIt, req.startAfterKey, req.prefix, req.version, req.limit)}
     GetMultipleKeysReply(success = true, None, keys, values.map(ByteString.copyFrom), versions)
   } { errorMsg => GetMultipleKeysReply(success = false, errorMsg) }
 
   override def deleteMultipleVersions(req: DeleteMultipleVersionsRequest): Future[DeleteMultipleVersionsReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
-    store.deleteMultipleVersions(req.key, req.oldestVersion, req.newestVersion)
+    store.withRawRocksIterator{rawIt => store.deleteMultipleVersions(rawIt, req.key, req.oldestVersion, req.newestVersion)}
     DeleteMultipleVersionsReply(success = true)
   } { errorMsg => DeleteMultipleVersionsReply(success = false, errorMsg) }
 
   override def listKeys(req: ListKeysRequest): Future[ListKeysReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
-    val keys = store.listKeys(req.limit, req.startAfterKey)
+    val keys = store.withRawRocksIterator{rawIt => store.listKeys(rawIt, req.limit, req.startAfterKey)}
     ListKeysReply(success = true, None, keys)
   } { errorMsg => ListKeysReply(success = false, errorMsg) }
 
   override def listVersions(req: ListVersionsRequest): Future[ListVersionsReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
-    val versions = store.listVersions(req.key, req.limit, req.offset)
+    val versions = store.withRawRocksIterator{rawIt => store.listVersions(rawIt, req.key, req.limit, req.offset)}
     ListVersionsReply(success = true, None, versions)
   } { errorMsg => ListVersionsReply(success = false, errorMsg) }
 
