@@ -4,7 +4,7 @@ jobs:
     machine:
       image: ubuntu-2004:202111-02
     environment:
-      SBT_VERSION_TAG: master__6469160879
+      SBT_VERSION_TAG: master__7830403826
       USER_UID: 1000
       USER_GID: 1000
       TARGET_DIR: target/scala-2.13
