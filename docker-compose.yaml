@@ -30,7 +30,7 @@ services:
     network_mode: host
 
   sbt:
-    image: scalableminds/sbt:${SBT_VERSION_TAG:-sbt-0.13.15_mongo-3.2.17_node-8.x_jdk-8}
+    image: scalableminds/sbt:${SBT_VERSION_TAG:-master__7830403826}
     environment:
       - USER_UID
       - USER_GID
