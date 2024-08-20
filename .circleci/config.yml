@@ -58,6 +58,8 @@ jobs:
               VERSION=$(cat $TARGET_DIR/version)
               docker tag scalableminds/fossildb:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} scalableminds/fossildb:${VERSION}
               docker push scalableminds/fossildb:${VERSION}
+              docker tag scalableminds/fossildb-client:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} scalableminds/fossildb-client:${VERSION}
+              docker push scalableminds/fossildb-client:${VERSION}
             fi
             docker logout
 
