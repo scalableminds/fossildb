@@ -7,7 +7,7 @@ import java.nio.file.{Files, Path}
 import java.util
 import scala.collection.mutable
 import scala.concurrent.Future
-import scala.jdk.CollectionConverters.{ListHasAsScala, BufferHasAsJava, SeqHasAsJava}
+import scala.jdk.CollectionConverters.{BufferHasAsJava, ListHasAsScala, SeqHasAsJava}
 import scala.language.postfixOps
 
 case class BackupInfo(id: Int, timestamp: Long, size: Long)
@@ -35,7 +35,8 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
       }
     }
     options.setCreateIfMissing(true).setCreateMissingColumnFamilies(true)
-    val defaultColumnFamilyOptions = cfListRef.find(_.getName sameElements RocksDB.DEFAULT_COLUMN_FAMILY).map(_.getOptions).getOrElse(columnOptions)
+    val defaultColumnFamilyOptions: ColumnFamilyOptions = cfListRef.find(_.getName sameElements RocksDB.DEFAULT_COLUMN_FAMILY).map(_.getOptions).getOrElse(columnOptions)
+    println(defaultColumnFamilyOptions)
     val newColumnFamilyDescriptors = (columnFamilies.map(_.getBytes) :+ RocksDB.DEFAULT_COLUMN_FAMILY).diff(cfListRef.toList.map(_.getName)).map(new ColumnFamilyDescriptor(_, defaultColumnFamilyOptions))
     val columnFamilyDescriptors = cfListRef.toList ::: newColumnFamilyDescriptors
     logger.info("Opening RocksDB at " + dataDir.toAbsolutePath)
@@ -84,8 +85,11 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     logger.info(s"Exporting to new DB at ${newDataDir.toString} with options file $newOptionsFilePathOpt")
     val newManager = new RocksDBManager(newDataDir, columnFamilies, newOptionsFilePathOpt)
     newManager.columnFamilyHandles.foreach { case (name, handle) =>
-      val dataIterator = getStoreForColumnFamily(name).get.scan("", None)
-      dataIterator.foreach(el => newManager.db.put(handle, el.key.getBytes, el.value))
+      val store = getStoreForColumnFamily(name).get
+      store.withRawRocksIterator { rocksIt =>
+        val dataIterator = RocksDBStore.scan(rocksIt, "", None)
+        dataIterator.foreach(el => newManager.db.put(handle, el.key.getBytes, el.value))
+      }
     }
     logger.info("Writing data completed. Start compaction")
     newManager.db.compactRange()
@@ -128,20 +132,17 @@ class RocksDBIterator(it: RocksIterator, prefix: Option[String]) extends Iterato
 
 class RocksDBStore(db: RocksDB, handle: ColumnFamilyHandle) extends LazyLogging {
 
+  def withRawRocksIterator[T](block: RocksIterator => T): T = {
+    val rocksIt = db.newIterator(handle)
+    try {
+      block(rocksIt)
+    } finally {
+      rocksIt.close()
+    }
+  }
+
   def get(key: String): Array[Byte] = {
     db.get(handle, key.getBytes())
-  }
-
-  def scan(key: String, prefix: Option[String]): RocksDBIterator = {
-    val it = db.newIterator(handle)
-    it.seek(key.getBytes())
-    new RocksDBIterator(it, prefix)
-  }
-
-  def scanKeysOnly(key: String, prefix: Option[String]): RocksDBKeyIterator = {
-    val it = db.newIterator(handle)
-    it.seek(key.getBytes())
-    new RocksDBKeyIterator(it, prefix)
   }
 
   def put(key: String, value: Array[Byte]): Unit = {
@@ -150,6 +151,20 @@ class RocksDBStore(db: RocksDB, handle: ColumnFamilyHandle) extends LazyLogging 
 
   def delete(key: String): Unit = {
     db.delete(handle, key.getBytes())
+  }
+
+}
+
+object RocksDBStore {
+
+  def scan(rocksIt: RocksIterator, key: String, prefix: Option[String]): RocksDBIterator = {
+    rocksIt.seek(key.getBytes())
+    new RocksDBIterator(rocksIt, prefix)
+  }
+
+  def scanKeysOnly(rocksIt: RocksIterator, key: String, prefix: Option[String]): RocksDBKeyIterator = {
+    rocksIt.seek(key.getBytes())
+    new RocksDBKeyIterator(rocksIt, prefix)
   }
 
 }
