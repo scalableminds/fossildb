@@ -60,6 +60,12 @@ class FossilDBGrpcImpl(storeManager: StoreManager)
     DeleteMultipleVersionsReply(success = true)
   } { errorMsg => DeleteMultipleVersionsReply(success = false, errorMsg) }
 
+  override def deleteAllByPrefix(req: DeleteAllByPrefixRequest): Future[DeleteAllByPrefixReply] = withExceptionHandler(req) {
+    val store = storeManager.getStore(req.collection)
+    store.withRawRocksIterator{rocksIt => store.deleteAllByPrefix(rocksIt, req.prefix)}
+    DeleteAllByPrefixReply(success = true)
+  } { errorMsg => DeleteAllByPrefixReply(success = false, errorMsg)}
+
   override def listKeys(req: ListKeysRequest): Future[ListKeysReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
     val keys = store.withRawRocksIterator{rocksIt => store.listKeys(rocksIt, req.limit, req.startAfterKey)}

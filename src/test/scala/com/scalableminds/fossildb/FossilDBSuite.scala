@@ -134,6 +134,21 @@ class FossilDBSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHelpers
     assert(testData1 == reply.value)
   }
 
+  "DeleteAllByPrefix" should "delete all versions of all values matching this prefix" in {
+    client.put(PutRequest(collectionA, "prefixedA", Some(0), testData1))
+    client.put(PutRequest(collectionA, "prefixedA", Some(1), testData1))
+    client.put(PutRequest(collectionA, "prefixedB", Some(0), testData2))
+    client.put(PutRequest(collectionA, "prefixedC", Some(0), testData2))
+    client.put(PutRequest(collectionA, "differentKey", Some(0), testData2))
+    client.put(PutRequest(collectionA, "differentKey", Some(1), testData2))
+    client.put(PutRequest(collectionA, "yetDifferentKey", Some(0), testData2))
+    client.deleteAllByPrefix(DeleteAllByPrefixRequest(collectionA, "prefixed"))
+    val reply = client.listKeys(ListKeysRequest(collectionA))
+    assert(reply.keys.length == 2)
+    assert(reply.keys.contains("differentKey"))
+    assert(reply.keys.contains("yetDifferentKey"))
+  }
+
   "ListKeys" should "list all keys of a collection" in {
     client.put(PutRequest(collectionA, aKey, Some(0), testData1))
     client.put(PutRequest(collectionA, aKey, Some(1), testData2))

@@ -45,6 +45,16 @@ message DeleteReply {
     optional string errorMessage = 2;
 }
 
+message DeleteAllByPrefixRequest {
+    required string collection = 1;
+    required string prefix = 2;
+}
+
+message DeleteAllByPrefixReply {
+    required bool success = 1;
+    optional string errorMessage = 2;
+}
+
 message GetMultipleVersionsRequest {
     required string collection = 1;
     required string key = 2;
@@ -156,6 +166,7 @@ service FossilDB {
     rpc Put (PutRequest) returns (PutReply) {}
     rpc Delete (DeleteRequest) returns (DeleteReply) {}
     rpc DeleteMultipleVersions (DeleteMultipleVersionsRequest) returns (DeleteMultipleVersionsReply) {}
+    rpc DeleteAllByPrefix (DeleteAllByPrefixRequest) returns (DeleteAllByPrefixReply) {}
     rpc ListKeys (ListKeysRequest) returns (ListKeysReply) {}
     rpc ListVersions (ListVersionsRequest) returns (ListVersionsReply) {}
     rpc Backup (BackupRequest) returns (BackupReply) {}

@@ -180,6 +180,10 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
     deleteIter(versionsIterator)
   }
 
+  def deleteAllByPrefix(rocksIt: RocksIterator, prefix: String): Unit = {
+    RocksDBStore.scanKeysOnly(rocksIt, prefix, Some(prefix)).foreach(underlying.delete)
+  }
+
   def put(key: String, version: Long, value: Array[Byte]): Unit = {
     requireValidKey(key)
     underlying.put(VersionedKey(key, version).toString, value)
