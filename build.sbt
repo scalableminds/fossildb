@@ -24,9 +24,9 @@ version := getVersionFromGit
 scalaVersion := "2.13.12"
 
 libraryDependencies ++= Seq(
-  "ch.qos.logback" % "logback-classic" % "1.4.7",
+  "ch.qos.logback" % "logback-classic" % "1.5.6",
   "com.typesafe.scala-logging" %% "scala-logging" % "3.9.5",
-  "org.scalatest" % "scalatest_2.13" % "3.2.15" % "test",
+  "org.scalatest" % "scalatest_2.13" % "3.2.19" % "test",
   "io.grpc" % "grpc-netty" % scalapb.compiler.Version.grpcJavaVersion,
   "io.grpc" % "grpc-services" % scalapb.compiler.Version.grpcJavaVersion,
   "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % scalapb.compiler.Version.scalapbVersion,
