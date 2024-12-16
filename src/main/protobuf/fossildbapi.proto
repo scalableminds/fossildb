@@ -34,6 +34,18 @@ message PutReply {
     optional string errorMessage = 2;
 }
 
+message PutMultipleVersionsRequest {
+    required string collection = 1;
+    required string key = 2;
+    repeated uint64 versions = 3;
+    repeated bytes values = 4;
+}
+
+message PutMultipleVersionsReply {
+    required bool success = 1;
+    optional string errorMessage = 2;
+}
+
 message DeleteRequest {
     required string collection = 1;
     required string key = 2;
@@ -164,6 +176,7 @@ service FossilDB {
     rpc GetMultipleVersions (GetMultipleVersionsRequest) returns (GetMultipleVersionsReply) {}
     rpc GetMultipleKeys (GetMultipleKeysRequest) returns (GetMultipleKeysReply) {}
     rpc Put (PutRequest) returns (PutReply) {}
+    rpc PutMultipleVersions (PutMultipleVersionsRequest) returns (PutMultipleVersionsReply) {}
     rpc Delete (DeleteRequest) returns (DeleteReply) {}
     rpc DeleteMultipleVersions (DeleteMultipleVersionsRequest) returns (DeleteMultipleVersionsReply) {}
     rpc DeleteAllByPrefix (DeleteAllByPrefixRequest) returns (DeleteAllByPrefixReply) {}

@@ -36,6 +36,16 @@ class FossilDBGrpcImpl(storeManager: StoreManager)
     PutReply(success = true)
   } { errorMsg => PutReply(success = false, errorMsg) }
 
+  override def putMultipleVersions(req: PutMultipleVersionsRequest): Future[PutMultipleVersionsReply] = withExceptionHandler(req) {
+    val store = storeManager.getStore(req.collection)
+    require(req.versions.length == req.values.length, s"Must supply as many versions as values, got ${req.versions.length} versions vs ${req.values.length} values.")
+    require(req.versions.forall(_ >= 0), "Version numbers must be non-negative")
+    req.versions.zip(req.values).foreach { case (version, value) =>
+      store.put(req.key, version, value.toByteArray)
+    }
+    PutMultipleVersionsReply(success = true)
+  } { errorMsg => PutMultipleVersionsReply(success = false, errorMsg)}
+
   override def delete(req: DeleteRequest): Future[DeleteReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
     store.delete(req.key, req.version)

@@ -69,6 +69,16 @@ class FossilDBSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHelpers
     assert(testData2 == reply.value)
   }
 
+  "PutMultipleVersions" should "overwrite old values, leave others untouched" in {
+    client.put(PutRequest(collectionA, aKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aKey, Some(2), testData1))
+    client.putMultipleVersions(PutMultipleVersionsRequest(collectionA, aKey, Seq(1,2,3), Seq(testData2, testData3, testData3)))
+    val reply = client.getMultipleVersions(GetMultipleVersionsRequest(collectionA, aKey))
+    assert(reply.values.length == 4)
+    assert(reply.versions == Seq(3,2,1,0))
+    assert(reply.values == Seq(testData3, testData3, testData2, testData1))
+  }
+
   it should "fail on non-existent collection" in {
     val reply = client.put(PutRequest("nonExistentCollection", aKey, Some(0), testData1))
     assert(!reply.success)
