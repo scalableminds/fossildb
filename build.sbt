@@ -21,7 +21,7 @@ ThisBuild / scalacOptions ++= Seq(
 
 version := getVersionFromGit
 
-scalaVersion := "2.13.12"
+scalaVersion := "2.13.15"
 
 libraryDependencies ++= Seq(
   "ch.qos.logback" % "logback-classic" % "1.5.6",
@@ -30,7 +30,7 @@ libraryDependencies ++= Seq(
   "io.grpc" % "grpc-netty" % scalapb.compiler.Version.grpcJavaVersion,
   "io.grpc" % "grpc-services" % scalapb.compiler.Version.grpcJavaVersion,
   "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % scalapb.compiler.Version.scalapbVersion,
-  "org.rocksdb" % "rocksdbjni" % "8.10.0",
+  "org.rocksdb" % "rocksdbjni" % "9.4.0",
   "com.github.scopt" %% "scopt" % "4.1.0"
 )
 
