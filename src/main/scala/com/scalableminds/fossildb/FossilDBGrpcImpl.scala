@@ -99,8 +99,7 @@ class FossilDBGrpcImpl(storeManager: StoreManager)
 
   override def listKeys(req: ListKeysRequest): Future[ListKeysReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
-    // TODO prefix
-    val keys = store.withRawRocksIterator{rocksIt => store.listKeys(rocksIt, req.limit, req.startAfterKey)}
+    val keys = store.withRawRocksIterator{rocksIt => store.listKeys(rocksIt, req.limit, req.startAfterKey, req.prefix)}
     ListKeysReply(success = true, None, keys)
   } { errorMsg => ListKeysReply(success = false, errorMsg) }
 

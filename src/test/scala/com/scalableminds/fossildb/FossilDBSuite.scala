@@ -206,6 +206,37 @@ class FossilDBSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHelpers
     assert(reply.keys.length == 3)
   }
 
+  it should "respect prefix argument" in {
+    client.put(PutRequest(collectionA, "123456", Some(1), testData1))
+    client.put(PutRequest(collectionA, "123457", Some(123), testData2))
+    client.put(PutRequest(collectionA, "12345800", Some(123), testData3))
+    client.put(PutRequest(collectionA, "12345801", Some(123), testData3))
+    client.put(PutRequest(collectionA, "12345802", Some(123), testData3))
+    client.put(PutRequest(collectionA, "123458", Some(123), testData3))
+    client.put(PutRequest(collectionA, "123459", Some(123), testData3))
+
+    val reply = client.listKeys(ListKeysRequest(collectionA, None, None, prefix = Some("123458")))
+    assert(reply.keys.length == 4)
+    assert(reply.keys(0) == "12345800")
+    assert(reply.keys(1) == "12345801")
+  }
+
+  it should "respect prefix argument and startAfterKey together" in {
+    client.put(PutRequest(collectionA, "123456", Some(1), testData1))
+    client.put(PutRequest(collectionA, "123457", Some(123), testData2))
+    client.put(PutRequest(collectionA, "12345800", Some(123), testData3))
+    client.put(PutRequest(collectionA, "12345801", Some(123), testData3))
+    client.put(PutRequest(collectionA, "12345802", Some(123), testData3))
+    client.put(PutRequest(collectionA, "123458", Some(123), testData3))
+    client.put(PutRequest(collectionA, "123459", Some(123), testData3))
+
+    val reply = client.listKeys(ListKeysRequest(collectionA, None, startAfterKey = Some("12345800"), prefix = Some("123458")))
+    assert(reply.keys.length == 3)
+    assert(reply.keys(0) == "12345801")
+    assert(reply.keys(1) == "12345802")
+    assert(reply.keys(2) == "123458")
+  }
+
   "GetMultipleVersions" should "return all versions in decending order if called without limits" in {
     client.put(PutRequest(collectionA, aKey, Some(0), testData1))
     client.put(PutRequest(collectionA, aKey, Some(1), testData2))
