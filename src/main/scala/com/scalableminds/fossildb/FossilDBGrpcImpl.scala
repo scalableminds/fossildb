@@ -66,7 +66,13 @@ class FossilDBGrpcImpl(storeManager: StoreManager)
 
   override def getMultipleKeysByListWithMultipleVersions(req: GetMultipleKeysByListWithMultipleVersionsRequest): Future[GetMultipleKeysByListWithMultipleVersionsReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
-    val keyVersionsValuesPairs = Seq.empty // TODO
+    val keyVersionsValuesPairs = req.keys.map { key =>
+      val (values, versions) = store.withRawRocksIterator{rocksIt => store.getMultipleVersions(rocksIt, key, req.oldestVersion, req.newestVersion)}
+      val versionValuePairs = values.zip(versions).map { case (value, version) =>
+        VersionValuePairProto(version, ByteString.copyFrom(value))
+      }
+      KeyVersionsValuesPairProto(key, versionValuePairs)
+    }
     GetMultipleKeysByListWithMultipleVersionsReply(success = true, None, keyVersionsValuesPairs)
   } { errorMsg => GetMultipleKeysByListWithMultipleVersionsReply(success = false, errorMsg) }
 
@@ -93,6 +99,7 @@ class FossilDBGrpcImpl(storeManager: StoreManager)
 
   override def listKeys(req: ListKeysRequest): Future[ListKeysReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
+    // TODO prefix
     val keys = store.withRawRocksIterator{rocksIt => store.listKeys(rocksIt, req.limit, req.startAfterKey)}
     ListKeysReply(success = true, None, keys)
   } { errorMsg => ListKeysReply(success = false, errorMsg) }

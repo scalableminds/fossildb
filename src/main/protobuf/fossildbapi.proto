@@ -4,8 +4,8 @@ package com.scalableminds.fossildb.proto;
 
 message VersionedKeyValuePairProto {
     required string key = 1;
-    required bytes value = 2;
-    required uint64 version = 3;
+    required uint64 version = 2;
+    required bytes value = 3;
 }
 
 message KeyVersionsValuesPairProto {
@@ -14,8 +14,8 @@ message KeyVersionsValuesPairProto {
 }
 
 message VersionValuePairProto {
+    required uint64 actualVersion = 1;
     required bytes value = 2;
-    required uint64 actualVersion = 3;
 }
 
 message HealthRequest {}
