@@ -2,6 +2,22 @@ syntax = "proto2";
 
 package com.scalableminds.fossildb.proto;
 
+message VersionedKeyValuePairProto {
+    required string key = 1;
+    required bytes value = 2;
+    required uint64 version = 3;
+}
+
+message KeyVersionsValuesPairProto {
+    required string key = 1;
+    repeated VersionValuePairProto versionValuePairs = 2;
+}
+
+message VersionValuePairProto {
+    required bytes value = 2;
+    required uint64 actualVersion = 3;
+}
+
 message HealthRequest {}
 message HealthReply {
     required bool success = 1;
@@ -42,6 +58,16 @@ message PutMultipleVersionsRequest {
 }
 
 message PutMultipleVersionsReply {
+    required bool success = 1;
+    optional string errorMessage = 2;
+}
+
+message PutMultipleKeysWithMultipleVersionsRequest {
+    required string collection = 1;
+    repeated VersionedKeyValuePairProto versionedKeyValuePairs = 2;
+}
+
+message PutMultipleKeysWithMultipleVersionsReply {
     required bool success = 1;
     optional string errorMessage = 2;
 }
@@ -97,6 +123,19 @@ message GetMultipleKeysReply {
     repeated uint64 actualVersions = 5;
 }
 
+message GetMultipleKeysByListWithMultipleVersionsRequest {
+    required string collection = 1;
+    repeated string keys = 2;
+    optional uint64 newestVersion = 3; // Applied to all requested keys
+    optional uint64 oldestVersion = 4; // Applied to all requested keys
+}
+
+message GetMultipleKeysByListWithMultipleVersionsReply {
+    required bool success = 1;
+    optional string errorMessage = 2;
+    repeated KeyVersionsValuesPairProto keyVersionsValuesPairs = 3;
+}
+
 message DeleteMultipleVersionsRequest {
     required string collection = 1;
     required string key = 2;
@@ -113,6 +152,7 @@ message ListKeysRequest {
     required string collection = 1;
     optional uint32 limit = 2;
     optional string startAfterKey = 3;
+    optional string prefix = 4;
 }
 
 message ListKeysReply {
@@ -175,8 +215,10 @@ service FossilDB {
     rpc Get (GetRequest) returns (GetReply) {}
     rpc GetMultipleVersions (GetMultipleVersionsRequest) returns (GetMultipleVersionsReply) {}
     rpc GetMultipleKeys (GetMultipleKeysRequest) returns (GetMultipleKeysReply) {}
+    rpc GetMultipleKeysByListWithMultipleVersions (GetMultipleKeysByListWithMultipleVersionsRequest) returns (GetMultipleKeysByListWithMultipleVersionsReply) {}
     rpc Put (PutRequest) returns (PutReply) {}
     rpc PutMultipleVersions (PutMultipleVersionsRequest) returns (PutMultipleVersionsReply) {}
+    rpc PutMultipleKeysWithMultipleVersions (PutMultipleKeysWithMultipleVersionsRequest) returns (PutMultipleKeysWithMultipleVersionsReply) {}
     rpc Delete (DeleteRequest) returns (DeleteReply) {}
     rpc DeleteMultipleVersions (DeleteMultipleVersionsRequest) returns (DeleteMultipleVersionsReply) {}
     rpc DeleteAllByPrefix (DeleteAllByPrefixRequest) returns (DeleteAllByPrefixReply) {}
