@@ -7,10 +7,12 @@ import scala.util.Try
 
 
 case class VersionedKey(key: String, version: Long) {
-  override def toString: String = s"$key${VersionedKey.versionSeparator}${(~version).toHexString.toUpperCase}${VersionedKey.versionSeparator}$version"
+  override def toString: String = VersionedKey.asString(key, version)
 }
 
 object VersionedKey {
+
+  def asString(key: String, version: Long) = s"$key${VersionedKey.versionSeparator}${(~version).toHexString.toUpperCase}${VersionedKey.versionSeparator}$version"
 
   val versionSeparator: Char = '@'
 
@@ -188,12 +190,12 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
 
   def put(key: String, version: Long, value: Array[Byte]): Unit = {
     requireValidKey(key)
-    underlying.put(VersionedKey(key, version).toString, value)
+    underlying.put(VersionedKey.asString(key, version), value)
   }
 
   def delete(key: String, version: Long): Unit = {
     requireValidKey(key)
-    underlying.delete(VersionedKey(key, version).toString)
+    underlying.delete(VersionedKey.asString(key, version))
   }
 
   def listKeys(rocksIt: RocksIterator, limit: Option[Int], startAfterKey: Option[String], prefix: Option[String]): Seq[String] = {
