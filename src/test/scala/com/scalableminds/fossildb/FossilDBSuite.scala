@@ -97,6 +97,17 @@ class FossilDBSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHelpers
     assert(reply.actualVersion == 0)
   }
 
+  "PutMultipleKeysWithMultipleVersions" should "write all versions of all specified keys" in {
+    client.putMultipleKeysWithMultipleVersions(PutMultipleKeysWithMultipleVersionsRequest(collectionA, Seq(VersionedKeyValuePairProto(aKey, 0, testData1), VersionedKeyValuePairProto(aKey, 2, testData2), VersionedKeyValuePairProto(aNotherKey, 5, testData3))))
+    val reply = client.get(GetRequest(collectionA, aKey))
+    assert(reply.actualVersion == 2)
+    val reply2 = client.get(GetRequest(collectionA, aKey, version = Some(0)))
+    assert(reply2.actualVersion == 0)
+    val reply3 = client.get(GetRequest(collectionA, aNotherKey))
+    assert(reply3.actualVersion == 5)
+    assert(reply3.value == testData3)
+  }
+
   "Get" should "return matching value after matching Put" in {
     client.put(PutRequest(collectionA, aKey, Some(0), testData1))
     val reply = client.get(GetRequest(collectionA, aKey, Some(0)))
@@ -193,6 +204,37 @@ class FossilDBSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHelpers
 
     val reply = client.listKeys(ListKeysRequest(collectionA, None, Some("abb")))
     assert(reply.keys.length == 3)
+  }
+
+  it should "respect prefix argument" in {
+    client.put(PutRequest(collectionA, "123456", Some(1), testData1))
+    client.put(PutRequest(collectionA, "123457", Some(123), testData2))
+    client.put(PutRequest(collectionA, "12345800", Some(123), testData3))
+    client.put(PutRequest(collectionA, "12345801", Some(123), testData3))
+    client.put(PutRequest(collectionA, "12345802", Some(123), testData3))
+    client.put(PutRequest(collectionA, "123458", Some(123), testData3))
+    client.put(PutRequest(collectionA, "123459", Some(123), testData3))
+
+    val reply = client.listKeys(ListKeysRequest(collectionA, None, None, prefix = Some("123458")))
+    assert(reply.keys.length == 4)
+    assert(reply.keys(0) == "12345800")
+    assert(reply.keys(1) == "12345801")
+  }
+
+  it should "respect prefix argument and startAfterKey together" in {
+    client.put(PutRequest(collectionA, "123456", Some(1), testData1))
+    client.put(PutRequest(collectionA, "123457", Some(123), testData2))
+    client.put(PutRequest(collectionA, "12345800", Some(123), testData3))
+    client.put(PutRequest(collectionA, "12345801", Some(123), testData3))
+    client.put(PutRequest(collectionA, "12345802", Some(123), testData3))
+    client.put(PutRequest(collectionA, "123458", Some(123), testData3))
+    client.put(PutRequest(collectionA, "123459", Some(123), testData3))
+
+    val reply = client.listKeys(ListKeysRequest(collectionA, None, startAfterKey = Some("12345800"), prefix = Some("123458")))
+    assert(reply.keys.length == 3)
+    assert(reply.keys(0) == "12345801")
+    assert(reply.keys(1) == "12345802")
+    assert(reply.keys(2) == "123458")
   }
 
   "GetMultipleVersions" should "return all versions in decending order if called without limits" in {
@@ -346,6 +388,46 @@ class FossilDBSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHelpers
     client.put(PutRequest(collectionA, aThirdKey, Some(2), testData3))
     val reply = client.getMultipleKeys(GetMultipleKeysRequest(collectionA, Some(aKey), Some("BogusPrefix"), Some(1), Some(2)))
     assert(reply.keys.isEmpty)
+  }
+
+  "GetMultipleKeysByListWithVersions" should "return selected keys with versions in descending order" in {
+    client.put(PutRequest(collectionA, aKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aNotherKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aThirdKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aKey, Some(1), testData2))
+    client.put(PutRequest(collectionA, aNotherKey, Some(1), testData2))
+    client.put(PutRequest(collectionA, aThirdKey, Some(1), testData2))
+    client.put(PutRequest(collectionA, aKey, Some(2), testData3))
+    client.put(PutRequest(collectionA, aNotherKey, Some(2), testData3))
+    client.put(PutRequest(collectionA, aThirdKey, Some(2), testData3))
+    val reply = client.getMultipleKeysByListWithMultipleVersions(GetMultipleKeysByListWithMultipleVersionsRequest(collectionA, keys = Seq(aNotherKey, aThirdKey)))
+    assert(reply.keyVersionsValuesPairs.map(_.key) == Seq(aNotherKey, aThirdKey))
+    assert(reply.keyVersionsValuesPairs(0).versionValuePairs.length == 3)
+    assert(reply.keyVersionsValuesPairs(1).versionValuePairs.length == 3)
+    assert(reply.keyVersionsValuesPairs(0).versionValuePairs(0) == VersionValuePairProto(2L, testData3))
+    assert(reply.keyVersionsValuesPairs(0).versionValuePairs(1) == VersionValuePairProto(1L, testData2))
+    assert(reply.keyVersionsValuesPairs(0).versionValuePairs(2) == VersionValuePairProto(0L, testData1))
+    assert(reply.keyVersionsValuesPairs(1).versionValuePairs(0) == VersionValuePairProto(2L, testData3))
+    assert(reply.keyVersionsValuesPairs(1).versionValuePairs(1) == VersionValuePairProto(1L, testData2))
+    assert(reply.keyVersionsValuesPairs(1).versionValuePairs(2) == VersionValuePairProto(0L, testData1))
+  }
+
+  it should "limit the versions if specified" in {
+    client.put(PutRequest(collectionA, aKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aNotherKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aThirdKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aKey, Some(1), testData2))
+    client.put(PutRequest(collectionA, aNotherKey, Some(1), testData2))
+    client.put(PutRequest(collectionA, aThirdKey, Some(1), testData2))
+    client.put(PutRequest(collectionA, aKey, Some(2), testData3))
+    client.put(PutRequest(collectionA, aNotherKey, Some(2), testData3))
+    client.put(PutRequest(collectionA, aThirdKey, Some(2), testData3))
+    val reply = client.getMultipleKeysByListWithMultipleVersions(GetMultipleKeysByListWithMultipleVersionsRequest(collectionA, keys = Seq(aNotherKey, aThirdKey), newestVersion = Some(1), oldestVersion = Some(1)))
+    assert(reply.keyVersionsValuesPairs.map(_.key) == Seq(aNotherKey, aThirdKey))
+    assert(reply.keyVersionsValuesPairs(0).versionValuePairs.length == 1)
+    assert(reply.keyVersionsValuesPairs(1).versionValuePairs.length == 1)
+    assert(reply.keyVersionsValuesPairs(0).versionValuePairs(0) == VersionValuePairProto(1L, testData2))
+    assert(reply.keyVersionsValuesPairs(1).versionValuePairs(0) == VersionValuePairProto(1L, testData2))
   }
 
   "Backup" should "create non-empty backup directory" in {

@@ -7,10 +7,12 @@ import scala.util.Try
 
 
 case class VersionedKey(key: String, version: Long) {
-  override def toString: String = s"$key${VersionedKey.versionSeparator}${(~version).toHexString.toUpperCase}${VersionedKey.versionSeparator}$version"
+  override def toString: String = VersionedKey.asString(key, version)
 }
 
 object VersionedKey {
+
+  def asString(key: String, version: Long) = s"$key${VersionedKey.versionSeparator}${(~version).toHexString.toUpperCase}${VersionedKey.versionSeparator}$version"
 
   val versionSeparator: Char = '@'
 
@@ -24,6 +26,7 @@ object VersionedKey {
       VersionedKey(key, version)
     }
   }
+
 }
 
 case class VersionedKeyValuePair[T](versionedKey: VersionedKey, value: T) {
@@ -58,7 +61,7 @@ class VersionFilterIterator(it: RocksDBIterator, version: Option[Long]) extends 
 
 }
 
-class KeyOnlyIterator[T](rocksIt: RocksIterator, startAfterKey: Option[String]) extends Iterator[String] {
+class KeyOnlyIterator[T](rocksIt: RocksIterator, startAfterKey: Option[String], prefix: Option[String]) extends Iterator[String] {
 
   /*
      Note that seek in the underlying iterators either hits precisely or goes to the
@@ -70,17 +73,18 @@ class KeyOnlyIterator[T](rocksIt: RocksIterator, startAfterKey: Option[String]) 
 
   private def compositeKeyFor(keyOpt: Option[String]) = keyOpt match {
     case Some(key) => VersionedKey(key, 0).toString
-    case None => ""
+    // If the currentKey is not yet set, seek to the very beginning, or, if set, to the prefix.
+    case None => prefix.getOrElse("")
   }
 
   override def hasNext: Boolean = {
-    val it = RocksDBStore.scanKeysOnly(rocksIt, compositeKeyFor(currentKey), None)
+    val it = RocksDBStore.scanKeysOnly(rocksIt, compositeKeyFor(currentKey), prefix)
     if (it.hasNext && currentKey.isDefined && currentKey.contains(VersionedKey(it.peek).get.key)) it.next()
     it.hasNext
   }
 
   override def next(): String = {
-    val it = RocksDBStore.scanKeysOnly(rocksIt, compositeKeyFor(currentKey), None)
+    val it = RocksDBStore.scanKeysOnly(rocksIt, compositeKeyFor(currentKey), prefix)
     if (it.hasNext && currentKey.isDefined && currentKey.contains(VersionedKey(it.peek).get.key)) it.next()
     val nextKey = VersionedKey(it.next()).get.key
     currentKey = Some(nextKey)
@@ -186,16 +190,16 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
 
   def put(key: String, version: Long, value: Array[Byte]): Unit = {
     requireValidKey(key)
-    underlying.put(VersionedKey(key, version).toString, value)
+    underlying.put(VersionedKey.asString(key, version), value)
   }
 
   def delete(key: String, version: Long): Unit = {
     requireValidKey(key)
-    underlying.delete(VersionedKey(key, version).toString)
+    underlying.delete(VersionedKey.asString(key, version))
   }
 
-  def listKeys(rocksIt: RocksIterator, limit: Option[Int], startAfterKey: Option[String]): Seq[String] = {
-    val iterator = new KeyOnlyIterator(rocksIt, startAfterKey)
+  def listKeys(rocksIt: RocksIterator, limit: Option[Int], startAfterKey: Option[String], prefix: Option[String]): Seq[String] = {
+    val iterator = new KeyOnlyIterator(rocksIt, startAfterKey, prefix)
     iterator.take(limit.getOrElse(Int.MaxValue)).toSeq
   }
 
@@ -207,4 +211,5 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
   private def requireValidKey(key: String): Unit = {
     require(!key.contains(VersionedKey.versionSeparator), s"keys cannot contain the char ${VersionedKey.versionSeparator}")
   }
+
 }
