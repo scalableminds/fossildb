@@ -1,16 +1,15 @@
 import argparse
 
-from db_connection import (connect, getKey, getMultipleKeys, listKeys,
-                           listVersions)
+from db_connection import connect, getKey, getMultipleKeys, listKeys, listVersions
 from rich.text import Text
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
+from textual.suggester import SuggestFromList
 from textual.widget import Widget
-from textual.widgets import (Button, DataTable, Footer, Header, Input, Label,
-                             RichLog)
+from textual.widgets import Button, DataTable, Footer, Header, Input, Label, RichLog
 
 
 class ListKeysWidget(Widget):
@@ -149,6 +148,18 @@ class FossilDBClient(App):
 
     last_keys = [""]
 
+    knownCollections = [
+        "skeletons",
+        "volumes",
+        "volumeData",
+        "volumeSegmentIndex",
+        "editableMappingsInfo",
+        "editableMappingsAgglomerateToGraph",
+        "editableMappingsSegmentToAgglomerate",
+        "annotations",
+        "annotationUpdates",
+    ]
+
     def __init__(self, stub, collection, count):
         super().__init__()
         self.stub = stub
@@ -159,7 +170,10 @@ class FossilDBClient(App):
         """Create child widgets for the app."""
         yield Header()
         yield Input(
-            placeholder="Select collection:", id="collection", value=self.collection
+            placeholder="Select collection:",
+            id="collection",
+            value=self.collection,
+            suggester=SuggestFromList(self.knownCollections),
         )
         yield Input(
             placeholder="Find keys with prefix: (leave empty to list all keys)",
