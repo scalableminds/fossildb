@@ -5,7 +5,7 @@ from rich.text import Text
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, Container
 from textual.reactive import reactive
 from textual.suggester import SuggestFromList
 from textual.widget import Widget
@@ -169,17 +169,18 @@ class FossilDBClient(App):
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
         yield Header()
-        yield Input(
-            placeholder="Select collection:",
-            id="collection",
-            value=self.collection,
-            suggester=SuggestFromList(self.knownCollections),
-        )
-        yield Input(
-            placeholder="Find keys with prefix: (leave empty to list all keys)",
-            id="prefix",
-        )
-        yield ListKeysWidget(id="list-keys", stub=self.stub)
+        with Container(id="main-container"):
+            yield Input(
+                placeholder="Select collection:",
+                id="collection",
+                value=self.collection,
+                suggester=SuggestFromList(self.knownCollections),
+            )
+            yield Input(
+                placeholder="Find keys with prefix: (leave empty to list all keys)",
+                id="prefix",
+            )
+            yield ListKeysWidget(id="list-keys", stub=self.stub)
 
         yield Footer()
 
