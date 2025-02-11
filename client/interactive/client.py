@@ -58,12 +58,6 @@ class KeyInfoWidget(Widget):
     key_save_filename = ""
     versions = []
 
-    def sanitize_filename(self, name):
-        import re
-
-        s = str(name).strip().replace(" ", "_")
-        return re.sub(r"(?u)[^-\w.]", "_", s)
-
     def update_key(self, key):
         self.key = key
 
@@ -87,7 +81,7 @@ class KeyInfoWidget(Widget):
             key_info_text.append(
                 Text(",".join(map(str, self.versions)), style="bold white")
             )
-            self.sanitized_key_name = self.sanitize_filename(
+            self.sanitized_key_name = RecordExplorer.sanitize_filename(
                 f"{self.collection}_{key}_{self.versions[-1]}"
             )
         except Exception as e:
@@ -99,16 +93,18 @@ class KeyInfoWidget(Widget):
         tabbed_content = self.app.query_one(TabbedContent)
         tab_id = f"record_explorer_tab_{self.sanitized_key_name}"
 
-        if not tabbed_content.query(f"#{tab_id}"):
-            tabbed_content.add_pane(
-                TabPane(
-                    "Record Explorer " + self.key,
-                    RecordExplorer(
+        record_explorer = RecordExplorer(
                         stub=self.stub,
                         key=self.key,
                         collection=self.collection,
                         id=f"record_explorer_{self.sanitized_key_name}",
-                    ),
+                    )
+
+        if not tabbed_content.query(f"#{tab_id}"):
+            tabbed_content.add_pane(
+                TabPane(
+                    "Record Explorer " + self.key,
+                    record_explorer,
                     id=tab_id,
                 )
             )
@@ -127,9 +123,7 @@ class KeyInfoWidget(Widget):
             exploreButton = Button(label="Explore record", id="explore-button")
             yield exploreButton
 
-
-class FossilDBClient(App):
-    """A Textual app to manage FossilDB databases."""
+class RecordBrowser(Static):
 
     BINDINGS = [
         ("q", "quit", "Quit the client"),
@@ -162,12 +156,13 @@ class FossilDBClient(App):
         ),
         Binding("down", "next_key", "Select the next key", priority=True, show=False),
         Binding("up", "prev_key", "Select the previous key", priority=True, show=False),
+        Binding("c", "go_to_collection_selection", "Select collection", show=True),
+        Binding("e", "explore_key", "Explore the selected key", show=True),
     ]
 
     more_keys_available = False
     prefix = ""
     collection = "volumeData"
-    CSS_PATH = "client.tcss"
 
     # found_keys stores all found keys of the current collection / prefix
     found_keys = []
@@ -187,30 +182,25 @@ class FossilDBClient(App):
         "annotationUpdates",
     ]
 
-    def __init__(self, stub, collection, count):
-        super().__init__()
+    def __init__(self, stub, collection, key_list_limit, **kwargs):
+        super().__init__(**kwargs)
         self.stub = stub
         self.collection = collection
-        self.key_list_limit = int(count)
+        self.key_list_limit = key_list_limit
 
-    def compose(self) -> ComposeResult:
-        """Create child widgets for the app."""
-        yield Header()
-        with TabbedContent(id="main-tabs", initial="main-tab"):
-            with TabPane(id="main-tab", title="FossilDB Explorer"):
-                with Vertical():
-                    yield Input(
-                        placeholder="Select collection:",
-                        id="collection",
-                        value=self.collection,
-                        suggester=SuggestFromList(self.knownCollections),
-                    )
-                    yield Input(
-                        placeholder="Find keys with prefix: (leave empty to list all keys)",
-                        id="prefix",
-                    )
-                    yield ListKeysWidget(id="list-keys", stub=self.stub)
-        yield Footer()
+    def compose(self):
+        with Vertical():
+            yield Input(
+                placeholder="Select collection:",
+                id="collection",
+                value=self.collection,
+                suggester=SuggestFromList(self.knownCollections),
+            )
+            yield Input(
+                placeholder="Find keys with prefix: (leave empty to list all keys)",
+                id="prefix",
+            )
+            yield ListKeysWidget(id="list-keys", stub=self.stub)
 
     def reset_local_keys(self):
         self.found_keys = []
@@ -231,17 +221,11 @@ class FossilDBClient(App):
         table.clear(columns=True)
         table.add_column("key")
 
-        print(
-            f"Refreshing data: offset {self.query_offset}, found keys: {len(self.found_keys)}"
-        )
-
         # Query offset is the index of the key that will be the first key in the new list
         if self.query_offset != 0:
             query_after_key = self.found_keys[self.query_offset - 1]
         else:
             query_after_key = ""
-
-        print("Querying keys after key: ", query_after_key)
 
         try:
             if self.prefix != "":
@@ -319,12 +303,42 @@ class FossilDBClient(App):
         if current_row > 0:
             table.cursor_coordinate = (current_row - 1, table.cursor_coordinate.column)
         else:
-            if self.after_key != "":
+            if self.query_offset > 0:
                 self.action_show_prev()
                 table.cursor_coordinate = (
                     len(table.rows) - 2,  # -1 for last row, -1 for the More keys row
                     table.cursor_coordinate.column,
                 )
+
+    def action_go_to_collection_selection(self) -> None:
+        """An action to select the collection."""
+        self.query_one("#collection").focus()
+
+    def action_explore_key(self) -> None:
+        """An action to explore the selected key."""
+        self.query_one(KeyInfoWidget).explore_key()
+
+
+class FossilDBClient(App):
+    """A Textual app to manage FossilDB databases."""
+
+    CSS_PATH = "client.tcss"
+
+    title = "FossilDB Client"
+
+    def __init__(self, stub, collection, count):
+        super().__init__()
+        self.stub = stub
+        self.collection = collection
+        self.key_list_limit = int(count)
+
+    def compose(self) -> ComposeResult:
+        """Create child widgets for the app."""
+        yield Header()
+        with TabbedContent(id="main-tabs", initial="main-tab"):
+            with TabPane(id="main-tab", title="FossilDB Browser"):
+                yield RecordBrowser(id="record-browser", stub=self.stub, collection=self.collection, key_list_limit=self.key_list_limit)
+        yield Footer()
 
 
 def init_argument_parser():

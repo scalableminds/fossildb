@@ -1,9 +1,12 @@
+import re
+
 from protobuf_decoder.protobuf_decoder import Parser
 from rich.text import Text
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.reactive import reactive
 from textual.screen import Screen
-from textual.widgets import Label, Static, Collapsible, Rule, Button, OptionList
+from textual.widgets import Label, Static, Collapsible, Rule, Button, OptionList, TabbedContent
 from textual.widgets.option_list import Option
 from textual.containers import Horizontal, Vertical
 
@@ -36,6 +39,14 @@ class RecordExplorer(Static):
 
     selected_version = reactive(0)
 
+    BINDINGS = {
+        Binding("d", "download_data", "Download the selected version", show=True),
+        Binding("del", "delete_data", "Delete the selected version", show=True),
+        Binding("k", "next_version", "Next version", show=True),
+        Binding("j", "previous_version", "Previous version", show=True),
+        Binding("x", "close_tab", "Close tab", show=True),
+    }
+
     cached_data = {}
 
     def get_data(self):
@@ -45,17 +56,22 @@ class RecordExplorer(Static):
             self.stub, self.collection, self.key, self.selected_version
         )
         return self.cached_data[self.selected_version]
+    
+    def sanitize_filename(name):
+        s = str(name).strip().replace(" ", "_")
+        return re.sub(r"(?u)[^-\w.]", "_", s)
 
     def get_filename(self):
-        return f"{self.collection}_{self.key}_{self.selected_version}.bin"
+        sanitized_key = RecordExplorer.sanitize_filename(f"{self.collection}_{self.key}_{self.selected_version}")
+        return f"{sanitized_key}.bin"
 
-    def download_data(self):
+    def action_download_data(self):
         data = self.get_data()
         with open(self.get_filename(), "wb") as f:
             f.write(data)
         self.app.push_screen(DownloadNotification(filename=self.get_filename()))
 
-    def delete_data(self):
+    def action_delete_data(self):
         async def delete_callback(result: bool):
             if result:
                 deleteVersion(
@@ -166,7 +182,7 @@ class RecordExplorer(Static):
         )
 
     def compose(self):
-        # TODO: There is a third element in the middle for some reason
+        # TODO: There is a third element in the middle for some reason?
         with Horizontal():
             yield self.display_record()
             yield self.render_info_panel()
@@ -177,10 +193,28 @@ class RecordExplorer(Static):
             self.selected_version = version
             await self.recompose()
         if event.button.id == "download_button":
-            self.download_data()
+            self.action_download_data()
         if event.button.id == "delete_button":
-            self.delete_data()
+            self.action_delete_data()
 
+    async def action_previous_version(self):
+        current_index =  list(self.versions).index(self.selected_version)
+        if current_index == 0:
+            return
+        self.selected_version = self.versions[current_index - 1]
+        await self.recompose()
+
+    async def action_next_version(self):
+        current_index = list(self.versions).index(self.selected_version)
+        if current_index == len(self.versions) - 1:
+            return
+        self.selected_version = self.versions[current_index + 1]
+        await self.recompose()
+
+    def action_close_tab(self):
+        tabbed_content = self.app.query_one(TabbedContent)
+        tabbed_content.active = "main-tab"
+        tabbed_content.remove_pane(self.parent.id)
 
 class DownloadNotification(Screen):
     """Screen with a note on where the downloaded file is stored."""
@@ -193,7 +227,7 @@ class DownloadNotification(Screen):
 
     def compose(self) -> ComposeResult:
         yield Vertical(
-            Label(f"The version has been stored in {self.filename}", id="note"),
+            Static(f"The version has been stored in {self.filename}", id="note"),
             Button("Okay", variant="primary", id="okay"),
             id="dialog",
         )

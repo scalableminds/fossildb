@@ -7,3 +7,5 @@ fossildbapi_pb2.py
 env
 venv
 .venv
+
+*.bin
