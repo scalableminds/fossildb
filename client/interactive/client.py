@@ -1,15 +1,28 @@
 import argparse
+import logging
 
-from db_connection import connect, getKey, getMultipleKeys, listKeys, listVersions
+from record_explorer import RecordExplorer
+from db_connection import connect, getMultipleKeys, listKeys, listVersions
 from rich.text import Text
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical, Container
+from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.suggester import SuggestFromList
+from textual.widgets import TabbedContent
 from textual.widget import Widget
-from textual.widgets import Button, DataTable, Footer, Header, Input, Label, RichLog
+from textual.widgets import (
+    Button,
+    DataTable,
+    Footer,
+    Header,
+    Input,
+    Static,
+    TabPane,
+)
+
+logging.basicConfig(level=logging.DEBUG)
 
 
 class ListKeysWidget(Widget):
@@ -29,6 +42,7 @@ class ListKeysWidget(Widget):
     def on_data_table_row_highlighted(self, event):
         self.query_one(KeyInfoWidget).update_key(event.value)
         self.refresh()
+        pass
 
 
 class FileNameHint(Widget):
@@ -52,14 +66,10 @@ class KeyInfoWidget(Widget):
     def update_key(self, key):
         self.key = key
 
-        self.query_one("#write-button").styles.visibility = "visible"
-        self.query_one("#write-label").styles.visibility = "visible"
+        key_info_label = self.query_one("#key-info-label")
 
-        log = self.query_one("#key-info-label")
-
-        log.clear()
-        log.write(Text("Key:", style="bold magenta"))
-        log.write(key)
+        key_info_text = Text("Key:", style="bold magenta")
+        key_info_text.append(Text(key, style="bold white"))
 
         if key == "More keys on the next page...":
             return
@@ -67,48 +77,55 @@ class KeyInfoWidget(Widget):
         try:
             self.versions = listVersions(stub, self.collection, key)
             self.versions.sort()
-            log.write(Text("Versions:", style="bold magenta"))
-            log.write(",".join(map(str, self.versions)))
-            self.key_save_filename = self.sanitize_filename(
+            key_info_text.append(Text("\nVersions: "))
+            key_info_text.append(
+                Text(",".join(map(str, self.versions)), style="bold white")
+            )
+            self.sanitized_key_name = self.sanitize_filename(
                 f"{self.collection}_{key}_{self.versions[-1]}"
             )
-            self.query_one("#write-label").filename = self.key_save_filename
         except Exception as e:
-            log.write("Could not load versions: " + str(e))
+            key_info_text.append(Text("\nCould not load versions: " + str(e)))
+        key_info_label.update(key_info_text)
 
-    def write_key(self):
-        try:
-            value = getKey(stub, self.collection, self.key, self.versions[-1])
-            with open(self.key_save_filename, "wb") as f:
-                f.write(value)
-            self.query_one("#key-info-label").write(
-                f"Wrote data to {self.key_save_filename}"
+    def explore_key(self):
+        # Add new Explorer tab
+        tabbed_content = self.app.query_one(TabbedContent)
+        tab_id = f"record_explorer_tab_{self.sanitized_key_name}"
+
+        if not tabbed_content.query(f"#{tab_id}"):
+            tabbed_content.add_pane(
+                TabPane(
+                    "Record Explorer " + self.key,
+                    RecordExplorer(
+                        stub=self.stub,
+                        key=self.key,
+                        collection=self.collection,
+                        id=f"record_explorer_{self.sanitized_key_name}",
+                    ),
+                    id=tab_id,
+                )
             )
-        except Exception as e:
-            self.query_one("#key-info-label").write("Could not write key: " + str(e))
+        # Set the active tab
+        tabbed_content.active = tab_id
 
     def on_button_pressed(self, event):
-        if event.button.id == "write-button":
-            self.write_key()
+        event.stop()
+        if event.button.id == "explore-button":
+            self.explore_key()
 
     def compose(self) -> ComposeResult:
         with Vertical():
-            yield RichLog(id="key-info-label", wrap=True)
+            yield Static(id="key-info-label")
 
-            writeButton = Button(label="Save latest version in file", id="write-button")
-            writeButton.styles.visibility = "hidden"
-            writeLabel = FileNameHint(id="write-label")
-            writeLabel.styles.visibility = "hidden"
-            yield writeButton
-            yield writeLabel
+            exploreButton = Button(label="Explore record", id="explore-button")
+            yield exploreButton
 
 
 class FossilDBClient(App):
-
     """A Textual app to manage FossilDB databases."""
 
     BINDINGS = [
-        ("d", "toggle_dark", "Toggle dark mode"),
         ("q", "quit", "Quit the client"),
         ("r", "refresh", "Refresh the data"),
         Binding(
@@ -169,19 +186,20 @@ class FossilDBClient(App):
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
         yield Header()
-        with Container(id="main-container"):
-            yield Input(
-                placeholder="Select collection:",
-                id="collection",
-                value=self.collection,
-                suggester=SuggestFromList(self.knownCollections),
-            )
-            yield Input(
-                placeholder="Find keys with prefix: (leave empty to list all keys)",
-                id="prefix",
-            )
-            yield ListKeysWidget(id="list-keys", stub=self.stub)
-
+        with TabbedContent(id="main-tabs", initial="main-tab"):
+            with TabPane(id="main-tab", title="FossilDB Explorer"):
+                with Vertical():
+                    yield Input(
+                        placeholder="Select collection:",
+                        id="collection",
+                        value=self.collection,
+                        suggester=SuggestFromList(self.knownCollections),
+                    )
+                    yield Input(
+                        placeholder="Find keys with prefix: (leave empty to list all keys)",
+                        id="prefix",
+                    )
+                    yield ListKeysWidget(id="list-keys", stub=self.stub)
         yield Footer()
 
     @on(Input.Submitted)
@@ -228,10 +246,6 @@ class FossilDBClient(App):
             table.focus()
         except Exception as e:
             table.add_row("Could not load keys: " + str(e))
-
-    def action_toggle_dark(self) -> None:
-        """An action to toggle dark mode."""
-        self.dark = not self.dark
 
     def action_quit(self) -> None:
         """An action to quit the app."""

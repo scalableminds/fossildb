@@ -12,5 +12,9 @@ ListKeysWidget #list-keys {
 }
 
 Button {
-    width: 100%;
+    width: 90%;
+}
+
+#record_explorer_info_panel {
+    width: 30%;
 }
