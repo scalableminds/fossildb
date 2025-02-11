@@ -1,8 +1,6 @@
 import argparse
 import logging
 
-from record_explorer import RecordExplorer
-from db_connection import connect, getMultipleKeys, listKeys, listVersions
 from rich.text import Text
 from textual import on
 from textual.app import App, ComposeResult
@@ -21,6 +19,9 @@ from textual.widgets import (
     Static,
     TabPane,
 )
+
+from record_explorer import RecordExplorer
+from db_connection import connect, getMultipleKeys, listKeys, listVersions
 
 logging.basicConfig(level=logging.DEBUG)
 

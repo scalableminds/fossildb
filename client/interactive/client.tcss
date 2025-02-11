@@ -15,6 +15,11 @@ Button {
     width: 90%;
 }
 
+#record_explorer_display {
+    width: 70%;
+    overflow: auto;
+}
+
 #record_explorer_info_panel {
-    width: 30%;
+    width: 30%
 }
