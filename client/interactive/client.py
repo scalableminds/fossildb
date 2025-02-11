@@ -78,7 +78,12 @@ class KeyInfoWidget(Widget):
         try:
             self.versions = listVersions(stub, self.collection, key)
             self.versions.sort()
-            key_info_text.append(Text("\nVersions: "))
+            num_versions = (
+                f"{len(self.versions)} versions"
+                if len(self.versions) > 1
+                else "1 version"
+            )
+            key_info_text.append(Text(f"\n{num_versions}: "))
             key_info_text.append(
                 Text(",".join(map(str, self.versions)), style="bold white")
             )
@@ -159,12 +164,16 @@ class FossilDBClient(App):
         Binding("up", "prev_key", "Select the previous key", priority=True, show=False),
     ]
 
-    after_key = ""
+    more_keys_available = False
     prefix = ""
     collection = "volumeData"
     CSS_PATH = "client.tcss"
 
-    last_keys = [""]
+    # found_keys stores all found keys of the current collection / prefix
+    found_keys = []
+
+    # the offset of the current key list
+    query_offset = 0
 
     knownCollections = [
         "skeletons",
@@ -203,12 +212,16 @@ class FossilDBClient(App):
                     yield ListKeysWidget(id="list-keys", stub=self.stub)
         yield Footer()
 
+    def reset_local_keys(self):
+        self.found_keys = []
+
     @on(Input.Submitted)
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "collection":
             self.collection = event.input.value
         if event.input.id == "prefix":
             self.prefix = event.input.value
+        self.reset_local_keys()
         self.refresh_data()
 
     def refresh_data(self) -> None:
@@ -217,33 +230,55 @@ class FossilDBClient(App):
         self.query_one(KeyInfoWidget).collection = self.collection
         table.clear(columns=True)
         table.add_column("key")
+
+        print(
+            f"Refreshing data: offset {self.query_offset}, found keys: {len(self.found_keys)}"
+        )
+
+        # Query offset is the index of the key that will be the first key in the new list
+        if self.query_offset != 0:
+            query_after_key = self.found_keys[self.query_offset - 1]
+        else:
+            query_after_key = ""
+
+        print("Querying keys after key: ", query_after_key)
+
         try:
             if self.prefix != "":
-                keys = getMultipleKeys(
+                result_keys = getMultipleKeys(
                     self.stub,
                     self.collection,
                     self.prefix,
-                    self.after_key,
+                    query_after_key,
                     self.key_list_limit + 1,  # +1 to check if there are more keys
                 )
             else:
-                keys = listKeys(
-                    self.stub, self.collection, self.after_key, self.key_list_limit + 1
+                result_keys = listKeys(
+                    self.stub, self.collection, query_after_key, self.key_list_limit + 1
                 )
-            overlength = False
-            if len(keys) > self.key_list_limit:
-                keys = keys[:-1]
-                overlength = True
+            self.more_keys_available = False
+            if len(result_keys) > self.key_list_limit:
+                self.more_keys_available = True
+                result_keys.pop()
 
-            for i, key in enumerate(keys):
-                label = Text(str(i), style="#B0FC38 italic")
+            if self.query_offset == 0:
+                # First query, replace the list
+                self.found_keys = result_keys
+            elif self.query_offset < len(self.found_keys):
+                # Querying keys that we already know, update the list
+                for i in range(len(result_keys)):
+                    self.found_keys[self.query_offset + i] = result_keys[i]
+            else:
+                self.found_keys.extend(result_keys)
+
+            for i, key in enumerate(result_keys):
+                label = Text(str(i + self.query_offset), style="#B0FC38 italic")
                 table.add_row(key, label=label)
-            if overlength:
+            if self.more_keys_available:
                 table.add_row(
                     "More keys on the next page...",
                     label=Text("...", style="#B0FC38 italic"),
                 )
-            self.last_keys.append(keys[-1])
             table.focus()
         except Exception as e:
             table.add_row("Could not load keys: " + str(e))
@@ -258,16 +293,15 @@ class FossilDBClient(App):
 
     def action_show_next(self) -> None:
         """An action to show the next key_list_limit keys."""
-        self.after_key = self.last_keys[-1]
-        self.refresh_data()
+        if self.more_keys_available:
+            self.query_offset += self.key_list_limit
+            self.refresh_data()
 
     def action_show_prev(self) -> None:
         """An action to show the previous key_list_limit keys."""
-        if len(self.last_keys) > 2:
-            self.last_keys.pop()
-            self.last_keys.pop()
-            self.after_key = self.last_keys[-1]
-        self.refresh_data()
+        if self.query_offset > 0:
+            self.query_offset -= self.key_list_limit
+            self.refresh_data()
 
     def action_next_key(self) -> None:
         """An action to select the next key."""
