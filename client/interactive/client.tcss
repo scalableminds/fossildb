@@ -1,4 +1,4 @@
-ListKeysWidget #list-keys {
+DownloadNotification #list-keys {
     layout: horizontal;
     color: red;
 }

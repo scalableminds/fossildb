@@ -79,6 +79,10 @@ def listVersions(stub, collection, key):
     assertSuccess(reply)
     return reply.versions
 
+def deleteVersion(stub, collection, key, version):
+    reply = stub.Delete(proto.DeleteRequest(collection=collection, key=key, version=version))
+    assertSuccess(reply)
+
 
 def main():
     stub = connect()
