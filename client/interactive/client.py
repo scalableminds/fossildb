@@ -1,6 +1,8 @@
 import argparse
 import logging
 
+from db_connection import connect, getMultipleKeys, listKeys, listVersions
+from record_explorer import RecordExplorer
 from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
@@ -8,7 +10,6 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.suggester import SuggestFromList
-from textual.widgets import TabbedContent
 from textual.widget import Widget
 from textual.widgets import (
     Button,
@@ -17,11 +18,9 @@ from textual.widgets import (
     Header,
     Input,
     Static,
+    TabbedContent,
     TabPane,
 )
-
-from record_explorer import RecordExplorer
-from db_connection import connect, getMultipleKeys, listKeys, listVersions
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -44,7 +43,9 @@ class ListKeysWidget(Widget):
         selected = event.coordinate
         key_coordinate = (selected[0], 0)
         key = self.query_one(DataTable).get_cell_at(key_coordinate)
-        self.query_one(KeyInfoWidget).update_key(key)
+        # Last row always contains meta information
+        if key_coordinate[0] != len(self.query_one(DataTable).rows) - 1:
+            self.query_one(KeyInfoWidget).update_key(key)
         self.refresh()
         pass
 
@@ -68,7 +69,6 @@ class KeyInfoWidget(Widget):
 
         if key == "":
             key_info_label.update("No key selected")
-            # TODO: Disable button?
             return
 
         key_info_text = Text("Key: ", style="bold magenta")
@@ -228,13 +228,27 @@ class RecordBrowser(Static):
     @work
     async def load_version_number(self, key, key_index):
         table = self.query_one(DataTable)
-        print(f"Loading versions for key {key}")
         try:
             versions = listVersions(self.stub, self.collection, key)
             numVersions = len(versions)
             table.update_cell_at((key_index, 1), str(numVersions))
         except Exception as e:
             table.update_cell_at((key_index, 1), "Could not load versions: " + str(e))
+
+    def fetch_keys(self, query_after_key: str, limit: int) -> list:
+        if self.prefix != "":
+            found_keys = getMultipleKeys(
+                self.stub,
+                self.collection,
+                self.prefix,
+                query_after_key,
+                limit + 1,  # +1 to check if there are more keys
+            )
+        else:
+            found_keys = listKeys(
+                self.stub, self.collection, query_after_key, limit + 1
+            )
+        return found_keys
 
     def refresh_data(self) -> None:
         """Refresh the data in the table."""
@@ -251,18 +265,7 @@ class RecordBrowser(Static):
             query_after_key = ""
 
         try:
-            if self.prefix != "":
-                result_keys = getMultipleKeys(
-                    self.stub,
-                    self.collection,
-                    self.prefix,
-                    query_after_key,
-                    self.key_list_limit + 1,  # +1 to check if there are more keys
-                )
-            else:
-                result_keys = listKeys(
-                    self.stub, self.collection, query_after_key, self.key_list_limit + 1
-                )
+            result_keys = self.fetch_keys(query_after_key, self.key_list_limit)
             self.more_keys_available = False
             if len(result_keys) > self.key_list_limit:
                 self.more_keys_available = True
@@ -278,6 +281,9 @@ class RecordBrowser(Static):
             else:
                 self.found_keys.extend(result_keys)
 
+            if self.more_keys_available:
+                self.estimate_key_count()
+
             for i, key in enumerate(result_keys):
                 label = Text(str(i + self.query_offset), style="#B0FC38 italic")
                 table.add_row(key, "", label=label)
@@ -290,6 +296,7 @@ class RecordBrowser(Static):
                     label=Text("...", style="#B0FC38 italic"),
                 )
             else:
+                self.more_keys_row_key = None
                 table.add_row(
                     f"Found {len(self.found_keys)} keys",
                     "",
@@ -298,6 +305,35 @@ class RecordBrowser(Static):
             table.focus()
         except Exception as e:
             table.add_row("Could not load keys: " + str(e))
+
+    @work(exclusive=True)
+    async def estimate_key_count(self):
+        """Estimate the number of keys in the collection."""
+
+        def update_count(count):
+            if self.more_keys_available:
+                # This note is only shown if there are more keys available
+                table = self.query_one(DataTable)
+                more_keys_coords = (self.key_list_limit, 0)
+                table.update_cell_at(
+                    more_keys_coords, f"Found {count} keys, more on the next page..."
+                )
+
+        # For huge collections, don't request more than 1e6 times
+        TOTAL_REQUEST_COUNT = 1e6
+        KEY_LIST_LIMIT = 100
+        request_count = 0
+        count = len(self.found_keys)
+        last_key = self.found_keys[-1]
+        while request_count < TOTAL_REQUEST_COUNT:
+            keys = self.fetch_keys(last_key, KEY_LIST_LIMIT)
+            count += len(keys)
+            if len(keys) < KEY_LIST_LIMIT:
+                break
+            last_key = keys[-1]
+            request_count += 1
+            update_count(count)
+        update_count(count)
 
     def action_quit(self) -> None:
         """An action to quit the app."""

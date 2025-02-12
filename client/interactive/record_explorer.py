@@ -1,24 +1,16 @@
 import re
 
+from db_connection import deleteVersion, getKey, listVersions
 from protobuf_decoder.protobuf_decoder import Parser
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
+from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.screen import Screen
-from textual.widgets import (
-    Label,
-    Static,
-    Collapsible,
-    Rule,
-    Button,
-    OptionList,
-    TabbedContent,
-)
+from textual.widgets import (Button, Collapsible, Label, OptionList, Rule,
+                             Static, TabbedContent)
 from textual.widgets.option_list import Option
-from textual.containers import Horizontal, Vertical
-
-from db_connection import deleteVersion, getKey, listVersions
 
 
 class ProtobufDecoder:
@@ -202,7 +194,6 @@ class RecordExplorer(Static):
         )
 
     def compose(self):
-        # TODO: There is a third element in the middle for some reason?
         with Horizontal():
             yield self.display_record()
             yield self.render_info_panel()
