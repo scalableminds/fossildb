@@ -6,7 +6,15 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.reactive import reactive
 from textual.screen import Screen
-from textual.widgets import Label, Static, Collapsible, Rule, Button, OptionList, TabbedContent
+from textual.widgets import (
+    Label,
+    Static,
+    Collapsible,
+    Rule,
+    Button,
+    OptionList,
+    TabbedContent,
+)
 from textual.widgets.option_list import Option
 from textual.containers import Horizontal, Vertical
 
@@ -56,13 +64,15 @@ class RecordExplorer(Static):
             self.stub, self.collection, self.key, self.selected_version
         )
         return self.cached_data[self.selected_version]
-    
+
     def sanitize_filename(name):
         s = str(name).strip().replace(" ", "_")
         return re.sub(r"(?u)[^-\w.]", "_", s)
 
     def get_filename(self):
-        sanitized_key = RecordExplorer.sanitize_filename(f"{self.collection}_{self.key}_{self.selected_version}")
+        sanitized_key = RecordExplorer.sanitize_filename(
+            f"{self.collection}_{self.key}_{self.selected_version}"
+        )
         return f"{sanitized_key}.bin"
 
     def action_download_data(self):
@@ -138,19 +148,29 @@ class RecordExplorer(Static):
                 yield Collapsible(
                     *self.render_wire(field_data),
                     title=f"Field {field_number} (Type protobuf)",
+                    classes="protobuf",
                 )
             elif field_type == "varint":
                 values = self.decode_varint(field_data)
-                text = ", ".join([f"({val['type']}) {val['value']}" for val in values])
+                text = "\n".join([f"({val['type']}) {val['value']}" for val in values])
                 yield Collapsible(
-                    Static(text), title=f"Field {field_number} (Type {field_type})"
+                    Static(text),
+                    title=f"Field {field_number} (Type {field_type})",
+                    classes="varint",
                 )
             elif field_type == "fixed64":
                 double = field_data["value"]
                 integer = field_data["signed_int"]
                 yield Collapsible(
-                    Static(f"(double) {double}, (int) {integer}"),
+                    Static(f"(double) {double}\n(int) {integer}"),
                     title=f"Field {field_number} (Type {field_type})",
+                    classes="fixed64",
+                )
+            elif field_type == "string":
+                yield Collapsible(
+                    Label(f"{field_data}"),
+                    title=f"Field {field_number} (Type {field_type})",
+                    classes="string",
                 )
             else:
                 yield Collapsible(
@@ -198,7 +218,7 @@ class RecordExplorer(Static):
             self.action_delete_data()
 
     async def action_previous_version(self):
-        current_index =  list(self.versions).index(self.selected_version)
+        current_index = list(self.versions).index(self.selected_version)
         if current_index == 0:
             return
         self.selected_version = self.versions[current_index - 1]
@@ -215,6 +235,7 @@ class RecordExplorer(Static):
         tabbed_content = self.app.query_one(TabbedContent)
         tabbed_content.active = "main-tab"
         tabbed_content.remove_pane(self.parent.id)
+
 
 class DownloadNotification(Screen):
     """Screen with a note on where the downloaded file is stored."""

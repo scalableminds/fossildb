@@ -8,7 +8,7 @@ DownloadNotification #list-keys {
 }
 
 #key-info-label {
-    height: 50%;
+    padding: 2 0
 }
 
 Button {
@@ -22,4 +22,21 @@ Button {
 
 #record_explorer_info_panel {
     width: 30%
+}
+
+
+.fixed64 {
+    background: #828C51;
+}
+
+.varint {
+    background: #002626;
+}
+
+.string {
+    background: #2E0E02;
+}
+
+.protobuf {
+    background: #56667A
 }

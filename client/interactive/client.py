@@ -2,7 +2,7 @@ import argparse
 import logging
 
 from rich.text import Text
-from textual import on
+from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
@@ -41,7 +41,10 @@ class ListKeysWidget(Widget):
 
     @on(DataTable.CellHighlighted)
     def on_data_table_row_highlighted(self, event):
-        self.query_one(KeyInfoWidget).update_key(event.value)
+        selected = event.coordinate
+        key_coordinate = (selected[0], 0)
+        key = self.query_one(DataTable).get_cell_at(key_coordinate)
+        self.query_one(KeyInfoWidget).update_key(key)
         self.refresh()
         pass
 
@@ -63,7 +66,12 @@ class KeyInfoWidget(Widget):
 
         key_info_label = self.query_one("#key-info-label")
 
-        key_info_text = Text("Key:", style="bold magenta")
+        if key == "":
+            key_info_label.update("No key selected")
+            # TODO: Disable button?
+            return
+
+        key_info_text = Text("Key: ", style="bold magenta")
         key_info_text.append(Text(key, style="bold white"))
 
         if key == "More keys on the next page...":
@@ -94,11 +102,11 @@ class KeyInfoWidget(Widget):
         tab_id = f"record_explorer_tab_{self.sanitized_key_name}"
 
         record_explorer = RecordExplorer(
-                        stub=self.stub,
-                        key=self.key,
-                        collection=self.collection,
-                        id=f"record_explorer_{self.sanitized_key_name}",
-                    )
+            stub=self.stub,
+            key=self.key,
+            collection=self.collection,
+            id=f"record_explorer_{self.sanitized_key_name}",
+        )
 
         if not tabbed_content.query(f"#{tab_id}"):
             tabbed_content.add_pane(
@@ -120,8 +128,9 @@ class KeyInfoWidget(Widget):
         with Vertical():
             yield Static(id="key-info-label")
 
-            exploreButton = Button(label="Explore record", id="explore-button")
+            exploreButton = Button(label="Explore record (e)", id="explore-button")
             yield exploreButton
+
 
 class RecordBrowser(Static):
 
@@ -203,6 +212,8 @@ class RecordBrowser(Static):
             yield ListKeysWidget(id="list-keys", stub=self.stub)
 
     def reset_local_keys(self):
+        self.query_one(KeyInfoWidget).update_key("")
+        self.query_offset = 0
         self.found_keys = []
 
     @on(Input.Submitted)
@@ -214,12 +225,24 @@ class RecordBrowser(Static):
         self.reset_local_keys()
         self.refresh_data()
 
+    @work
+    async def load_version_number(self, key, key_index):
+        table = self.query_one(DataTable)
+        print(f"Loading versions for key {key}")
+        try:
+            versions = listVersions(self.stub, self.collection, key)
+            numVersions = len(versions)
+            table.update_cell_at((key_index, 1), str(numVersions))
+        except Exception as e:
+            table.update_cell_at((key_index, 1), "Could not load versions: " + str(e))
+
     def refresh_data(self) -> None:
         """Refresh the data in the table."""
         table = self.query_one(DataTable)
         self.query_one(KeyInfoWidget).collection = self.collection
         table.clear(columns=True)
         table.add_column("key")
+        table.add_column("#versions")
 
         # Query offset is the index of the key that will be the first key in the new list
         if self.query_offset != 0:
@@ -257,11 +280,20 @@ class RecordBrowser(Static):
 
             for i, key in enumerate(result_keys):
                 label = Text(str(i + self.query_offset), style="#B0FC38 italic")
-                table.add_row(key, label=label)
+                table.add_row(key, "", label=label)
+                # Asynchronously fetch the number of versions for each key
+                self.load_version_number(key, i)
             if self.more_keys_available:
                 table.add_row(
-                    "More keys on the next page...",
+                    f"Found more than {self.key_list_limit} keys, more on the next page...",
+                    "",
                     label=Text("...", style="#B0FC38 italic"),
+                )
+            else:
+                table.add_row(
+                    f"Found {len(self.found_keys)} keys",
+                    "",
+                    label=Text("EOF", style="#B0FC38 italic"),
                 )
             table.focus()
         except Exception as e:
@@ -269,7 +301,7 @@ class RecordBrowser(Static):
 
     def action_quit(self) -> None:
         """An action to quit the app."""
-        self.exit()
+        self.app.exit()
 
     def action_refresh(self) -> None:
         """An action to refresh the data."""
@@ -337,7 +369,12 @@ class FossilDBClient(App):
         yield Header()
         with TabbedContent(id="main-tabs", initial="main-tab"):
             with TabPane(id="main-tab", title="FossilDB Browser"):
-                yield RecordBrowser(id="record-browser", stub=self.stub, collection=self.collection, key_list_limit=self.key_list_limit)
+                yield RecordBrowser(
+                    id="record-browser",
+                    stub=self.stub,
+                    collection=self.collection,
+                    key_list_limit=self.key_list_limit,
+                )
         yield Footer()
 
 
