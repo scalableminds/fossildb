@@ -1,4 +1,5 @@
 import re
+from typing import Generator
 
 from db_connection import deleteVersion, getKey, listVersions
 from protobuf_decoder.protobuf_decoder import Parser
@@ -34,11 +35,9 @@ class RecordExplorer(Static):
         except Exception as e:
             print("Could not load versions: " + str(e))
 
-    selected_version = reactive(0)
-
     BINDINGS = {
         Binding("d", "download_data", "Download the selected version", show=True),
-        Binding("del", "delete_data", "Delete the selected version", show=True),
+        Binding("delete", "delete_data", "Delete the selected version", show=True),
         Binding("k", "next_version", "Next version", show=True),
         Binding("j", "previous_version", "Previous version", show=True),
         Binding("x", "close_tab", "Close tab", show=True),
@@ -46,7 +45,7 @@ class RecordExplorer(Static):
 
     cached_data = {}
 
-    def get_data(self):
+    def get_data(self) -> bytes:
         if self.selected_version in self.cached_data:
             return self.cached_data[self.selected_version]
         self.cached_data[self.selected_version] = getKey(
@@ -54,23 +53,23 @@ class RecordExplorer(Static):
         )
         return self.cached_data[self.selected_version]
 
-    def sanitize_filename(name):
+    def sanitize_filename(name: str) -> str:
         s = str(name).strip().replace(" ", "_")
         return re.sub(r"(?u)[^-\w.]", "_", s)
 
-    def get_filename(self):
+    def get_filename(self) -> str:
         sanitized_key = RecordExplorer.sanitize_filename(
             f"{self.collection}_{self.key}_{self.selected_version}"
         )
         return f"{sanitized_key}.bin"
 
-    def action_download_data(self):
+    def action_download_data(self) -> None:
         data = self.get_data()
         with open(self.get_filename(), "wb") as f:
             f.write(data)
         self.app.push_screen(DownloadNotification(filename=self.get_filename()))
 
-    def action_delete_data(self):
+    def action_delete_data(self) -> None:
         async def delete_callback(result: bool):
             if result:
                 deleteVersion(
@@ -94,14 +93,14 @@ class RecordExplorer(Static):
             delete_callback,
         )
 
-    def display_record(self):
+    def display_record(self) -> Vertical:
         data = self.get_data()
         parsed = self.parser.parse(data.hex()).to_dict()
         if len(parsed["results"]) == 0 and "remain_data" in parsed:
             return self.render_hex_dump(parsed["remain_data"])
         return Vertical(*self.render_wire(parsed), id="record_explorer_display")
 
-    def decode_varint(self, value: int):
+    def decode_varint(self, value: int) -> list:
         def interpret_as_twos_complement(val: int, bits: int) -> int:
             """Interprets an unsigned integer as a two's complement signed integer with the given bit width."""
             if val >= (1 << (bits - 1)):
@@ -130,7 +129,7 @@ class RecordExplorer(Static):
 
         return result
 
-    def render_hex_dump(self, data: str):
+    def render_hex_dump(self, data: str) -> DataTable:
         print("render hexdump!")
         table = DataTable(id="hexdump-table", zebra_stripes=True)
         table.add_column("Bytes")
@@ -153,7 +152,7 @@ class RecordExplorer(Static):
             addr += 16
         return table
 
-    def render_wire(self, spec: dict):
+    def render_wire(self, spec: dict) -> Generator[Collapsible, None, None]:
         for field in spec["results"]:
             field_number = field["field"]
             field_type = field["wire_type"]
@@ -192,12 +191,12 @@ class RecordExplorer(Static):
                     title=f"Field {field_number} (Type {field_type})",
                 )
 
-    def render_version_buttons(self):
+    def render_version_buttons(self) -> Generator[Button, None, None]:
         with Horizontal():
             for version in self.versions:
                 yield Button(f"Select version {version}", id=f"version_{version}")
 
-    def render_info_panel(self):
+    def render_info_panel(self) -> Vertical:
         info_text = Text("Exploring record/wire for ")
         info_text.append(self.collection, style="bold magenta")
         info_text.append(":")
@@ -215,12 +214,12 @@ class RecordExplorer(Static):
             id="record_explorer_info_panel",
         )
 
-    def compose(self):
+    def compose(self) -> ComposeResult:
         with Horizontal():
             yield self.display_record()
             yield self.render_info_panel()
 
-    async def on_button_pressed(self, event):
+    async def on_button_pressed(self, event) -> None:
         if event.button.id.startswith("version_"):
             version = int(event.button.id.split("_")[1])
             self.selected_version = version
@@ -230,21 +229,21 @@ class RecordExplorer(Static):
         if event.button.id == "delete_button":
             self.action_delete_data()
 
-    async def action_previous_version(self):
+    async def action_previous_version(self) -> None:
         current_index = list(self.versions).index(self.selected_version)
         if current_index == 0:
             return
         self.selected_version = self.versions[current_index - 1]
         await self.recompose()
 
-    async def action_next_version(self):
+    async def action_next_version(self) -> None:
         current_index = list(self.versions).index(self.selected_version)
         if current_index == len(self.versions) - 1:
             return
         self.selected_version = self.versions[current_index + 1]
         await self.recompose()
 
-    def action_close_tab(self):
+    def action_close_tab(self) -> None:
         tabbed_content = self.app.query_one(TabbedContent)
         tabbed_content.active = "main-tab"
         tabbed_content.remove_pane(self.parent.id)

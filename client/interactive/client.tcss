@@ -5,6 +5,7 @@ DownloadNotification #list-keys {
 
 #key-info {
     width: 30%;
+    margin-left: 1;
 }
 
 #key-info-label {

@@ -39,7 +39,7 @@ class ListKeysWidget(Widget):
             yield info_widget
 
     @on(DataTable.CellHighlighted)
-    def on_data_table_row_highlighted(self, event):
+    def on_data_table_row_highlighted(self, event: DataTable.CellHighlighted) -> None:
         selected = event.coordinate
         key_coordinate = (selected[0], 0)
         key = self.query_one(DataTable).get_cell_at(key_coordinate)
@@ -62,17 +62,19 @@ class KeyInfoWidget(Widget):
     key_save_filename = ""
     versions = []
 
-    def update_key(self, key):
+    def update_key(self, key: str) -> None:
         self.key = key
 
         key_info_label = self.query_one("#key-info-label")
 
         if key == "":
             key_info_label.update("No key selected")
+            self.query_one("#explore-button").disabled = True
             return
 
         key_info_text = Text("Key: ", style="bold magenta")
         key_info_text.append(Text(key, style="bold white"))
+        self.query_one("#explore-button").disabled = False
 
         if key == "More keys on the next page...":
             return
@@ -96,7 +98,7 @@ class KeyInfoWidget(Widget):
             key_info_text.append(Text("\nCould not load versions: " + str(e)))
         key_info_label.update(key_info_text)
 
-    def explore_key(self):
+    def explore_key(self) -> None:
         # Add new Explorer tab
         tabbed_content = self.app.query_one(TabbedContent)
         tab_id = f"record_explorer_tab_{self.sanitized_key_name}"
@@ -119,7 +121,7 @@ class KeyInfoWidget(Widget):
         # Set the active tab
         tabbed_content.active = tab_id
 
-    def on_button_pressed(self, event):
+    def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
         if event.button.id == "explore-button":
             self.explore_key()
@@ -191,13 +193,13 @@ class RecordBrowser(Static):
         "annotationUpdates",
     ]
 
-    def __init__(self, stub, collection, key_list_limit, **kwargs):
+    def __init__(self, stub, collection: str, key_list_limit: int, **kwargs):
         super().__init__(**kwargs)
         self.stub = stub
         self.collection = collection
         self.key_list_limit = key_list_limit
 
-    def compose(self):
+    def compose(self) -> ComposeResult:
         with Vertical():
             yield Input(
                 placeholder="Select collection:",
@@ -211,7 +213,7 @@ class RecordBrowser(Static):
             )
             yield ListKeysWidget(id="list-keys", stub=self.stub)
 
-    def reset_local_keys(self):
+    def reset_local_keys(self) -> None:
         self.query_one(KeyInfoWidget).update_key("")
         self.query_offset = 0
         self.found_keys = []
@@ -226,7 +228,7 @@ class RecordBrowser(Static):
         self.refresh_data()
 
     @work
-    async def load_version_number(self, key, key_index):
+    async def load_version_number(self, key: str, key_index: int) -> None:
         table = self.query_one(DataTable)
         try:
             versions = listVersions(self.stub, self.collection, key)
@@ -304,10 +306,13 @@ class RecordBrowser(Static):
                 )
             table.focus()
         except Exception as e:
-            table.add_row("Could not load keys: " + str(e))
+            if "No store for column family" in str(e):
+                table.add_row("Collection not found: " + self.collection)
+            else:
+                table.add_row("Could not load keys: " + str(e))
 
     @work(exclusive=True)
-    async def estimate_key_count(self):
+    async def estimate_key_count(self) -> None:
         """Estimate the number of keys in the collection."""
 
         def update_count(count):
@@ -414,7 +419,7 @@ class FossilDBClient(App):
         yield Footer()
 
 
-def init_argument_parser():
+def init_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "host",

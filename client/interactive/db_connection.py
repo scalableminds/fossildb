@@ -7,7 +7,7 @@ import grpc
 MAX_MESSAGE_LENGTH = 1073741824
 
 
-def connect(host):
+def connect(host: str) -> proto_rpc.FossilDBStub:
     channel = grpc.insecure_channel(
         host,
         options=[
@@ -20,7 +20,7 @@ def connect(host):
     return stub
 
 
-def testHealth(stub, label):
+def testHealth(stub, label: str) -> None:
     try:
         reply = stub.Health(proto.HealthRequest())
         assertSuccess(reply)
@@ -30,12 +30,14 @@ def testHealth(stub, label):
         sys.exit(1)
 
 
-def assertSuccess(reply):
+def assertSuccess(reply) -> None:
     if not reply.success:
         raise Exception("reply.success failed: " + reply.errorMessage)
 
 
-def listKeys(stub, collection, startAfterKey, limit):
+def listKeys(
+    stub: proto_rpc.FossilDBStub, collection: str, startAfterKey: str, limit: int
+):
     if startAfterKey == "":
         reply = stub.ListKeys(proto.ListKeysRequest(collection=collection, limit=limit))
     else:
@@ -48,13 +50,19 @@ def listKeys(stub, collection, startAfterKey, limit):
     return reply.keys
 
 
-def getKey(stub, collection, key, version):
+def getKey(stub: proto_rpc.FossilDBStub, collection: str, key: str, version: int):
     reply = stub.Get(proto.GetRequest(collection=collection, key=key, version=version))
     assertSuccess(reply)
     return reply.value
 
 
-def getMultipleKeys(stub, collection, prefix, startAfterKey, limit):
+def getMultipleKeys(
+    stub: proto_rpc.FossilDBStub,
+    collection: str,
+    prefix: str,
+    startAfterKey: str,
+    limit: int,
+):
     if startAfterKey != "":
         reply = stub.GetMultipleKeys(
             proto.GetMultipleKeysRequest(
@@ -74,20 +82,22 @@ def getMultipleKeys(stub, collection, prefix, startAfterKey, limit):
     return reply.keys
 
 
-def listVersions(stub, collection, key):
+def listVersions(stub: proto_rpc.FossilDBStub, collection: str, key: str):
     reply = stub.ListVersions(proto.ListVersionsRequest(collection=collection, key=key))
     assertSuccess(reply)
     return reply.versions
 
 
-def deleteVersion(stub, collection, key, version):
+def deleteVersion(
+    stub: proto_rpc.FossilDBStub, collection: str, key: str, version: int
+) -> None:
     reply = stub.Delete(
         proto.DeleteRequest(collection=collection, key=key, version=version)
     )
     assertSuccess(reply)
 
 
-def main():
+def main() -> None:
     stub = connect()
     print(stub.ListKeys(proto.ListKeysRequest(collection="volumeData", limit=10)))
 
