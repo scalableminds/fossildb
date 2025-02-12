@@ -20,6 +20,11 @@ Button {
     overflow: auto;
 }
 
+#hexdump-table {
+    width: 70%;
+    overflow: auto;
+}
+
 #record_explorer_info_panel {
     width: 30%
 }

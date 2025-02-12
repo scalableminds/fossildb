@@ -8,27 +8,24 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.screen import Screen
-from textual.widgets import (Button, Collapsible, Label, OptionList, Rule,
-                             Static, TabbedContent)
-from textual.widgets.option_list import Option
-
-
-class ProtobufDecoder:
-    def __init__(self):
-        self.parser = Parser()
-
-    def decode(self, data: bytes):
-        hex = data.hex()
-        return self.parser.parse(hex)
+from textual.widgets import (
+    Button,
+    Collapsible,
+    DataTable,
+    Label,
+    Rule,
+    Static,
+    TabbedContent,
+)
 
 
 class RecordExplorer(Static):
     def __init__(self, stub, key: str, collection: str, **kwargs):
         super().__init__(**kwargs)
         self.stub = stub
-        self.decoder = ProtobufDecoder()
         self.key = key
         self.collection = collection
+        self.parser = Parser()
 
         try:
             self.versions = listVersions(stub, self.collection, key)
@@ -99,7 +96,9 @@ class RecordExplorer(Static):
 
     def display_record(self):
         data = self.get_data()
-        parsed = self.decoder.decode(data).to_dict()
+        parsed = self.parser.parse(data.hex()).to_dict()
+        if len(parsed["results"]) == 0 and "remain_data" in parsed:
+            return self.render_hex_dump(parsed["remain_data"])
         return Vertical(*self.render_wire(parsed), id="record_explorer_display")
 
     def decode_varint(self, value: int):
@@ -130,6 +129,29 @@ class RecordExplorer(Static):
             result.append({"type": "sint", "value": str(signed_int_val)})
 
         return result
+
+    def render_hex_dump(self, data: str):
+        print("render hexdump!")
+        table = DataTable(id="hexdump-table", zebra_stripes=True)
+        table.add_column("Bytes")
+        table.add_column("ASCII")
+
+        hex_str = data.replace(
+            "\n", " "
+        ).split()  # Convert the data into a list of bytes
+        addr = 0
+
+        while hex_str:
+            line_data = hex_str[:16]  # Process 16 bytes per line
+            hex_bytes = " ".join(f"{b}" for b in line_data)
+            ascii_repr = "".join(
+                chr(int(b, 16)) if 32 <= int(b, 16) <= 126 else "." for b in line_data
+            )
+
+            table.add_row(hex_bytes, ascii_repr, label=f"{addr:07x}")
+            hex_str = hex_str[16:]  # Move to the next 16 bytes
+            addr += 16
+        return table
 
     def render_wire(self, spec: dict):
         for field in spec["results"]:
