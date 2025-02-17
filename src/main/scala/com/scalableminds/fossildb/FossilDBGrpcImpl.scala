@@ -72,7 +72,7 @@ class FossilDBGrpcImpl(storeManager: StoreManager)
         VersionValuePairProto(version, ByteString.copyFrom(value))
       }
       KeyVersionsValuesPairProto(key, versionValuePairs)
-    }
+    }.filter(_.versionValuePairs.nonEmpty)
     GetMultipleKeysByListWithMultipleVersionsReply(success = true, None, keyVersionsValuesPairs)
   } { errorMsg => GetMultipleKeysByListWithMultipleVersionsReply(success = false, errorMsg) }
 

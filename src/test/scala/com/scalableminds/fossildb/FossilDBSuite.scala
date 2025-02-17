@@ -430,6 +430,17 @@ class FossilDBSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHelpers
     assert(reply.keyVersionsValuesPairs(1).versionValuePairs(0) == VersionValuePairProto(1L, testData2))
   }
 
+  it should "return an empty list if no versions match" in {
+    client.put(PutRequest(collectionA, aKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aNotherKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aKey, Some(1), testData2))
+    client.put(PutRequest(collectionA, aNotherKey, Some(1), testData2))
+    client.put(PutRequest(collectionA, aKey, Some(5), testData3))
+    client.put(PutRequest(collectionA, aNotherKey, Some(5), testData3))
+    val reply = client.getMultipleKeysByListWithMultipleVersions(GetMultipleKeysByListWithMultipleVersionsRequest(collectionA, keys = Seq(aNotherKey, aThirdKey, aThirdKey), newestVersion = Some(3), oldestVersion = Some(4)))
+    assert(reply.keyVersionsValuesPairs.isEmpty)
+  }
+
   "Backup" should "create non-empty backup directory" in {
     client.put(PutRequest(collectionA, aKey, Some(0), testData1))
     client.backup(BackupRequest())
