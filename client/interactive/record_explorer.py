@@ -4,15 +4,18 @@ from typing import Generator
 from db_connection import deleteVersion, getKey, listVersions
 from protobuf_decoder.protobuf_decoder import Parser
 from rich.text import Text
+from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.css.query import NoMatches
 from textual.reactive import reactive
 from textual.screen import Screen
 from textual.widgets import (
     Button,
     Collapsible,
     DataTable,
+    Input,
     Label,
     Rule,
     Static,
@@ -191,10 +194,19 @@ class RecordExplorer(Static):
                     title=f"Field {field_number} (Type {field_type})",
                 )
 
-    def render_version_buttons(self) -> Generator[Button, None, None]:
-        with Horizontal():
-            for version in self.versions:
-                yield Button(f"Select version {version}", id=f"version_{version}")
+    def render_version_list(self) -> Static:
+        versions = list(self.versions)
+        if len(versions) >= 500:
+            # Do not render links if there are too many versions (slows everything down)
+            return Static(
+                "Available versions: " + ", ".join(f"{v}" for v in versions),
+                id="version_list",
+            )
+        return Static(
+            "Available versions: "
+            + ", ".join(f"[@click=app.set_version({v})]{v}[/]" for v in versions),
+            id="version_list",
+        )
 
     def render_info_panel(self) -> Vertical:
         info_text = Text("Exploring record/wire for ")
@@ -210,7 +222,10 @@ class RecordExplorer(Static):
             Button("Download selected version", id="download_button"),
             Button("Delete selected version", id="delete_button"),
             Rule(),
-            *self.render_version_buttons(),
+            Label("Select a version to view"),
+            Input(value=str(self.selected_version), id="version_selection"),
+            Button("Select", id="select_button"),
+            self.render_version_list(),
             id="record_explorer_info_panel",
         )
 
@@ -218,6 +233,24 @@ class RecordExplorer(Static):
         with Horizontal():
             yield self.display_record()
             yield self.render_info_panel()
+
+    @on(Input.Submitted)
+    async def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "version_selection":
+            try:
+                version = int(event.input.value)
+                await self.set_version(version)
+            except ValueError:
+                pass
+
+    async def set_version(self, version: int) -> None:
+        if version in self.versions:
+            self.selected_version = version
+            await self.recompose()
+
+    def set_version_in_selector(self, version: int) -> None:
+        """Called from app, triggered via link on version number."""
+        self.query_one(Input).value = str(version)
 
     async def on_button_pressed(self, event) -> None:
         if event.button.id.startswith("version_"):
@@ -228,25 +261,37 @@ class RecordExplorer(Static):
             self.action_download_data()
         if event.button.id == "delete_button":
             self.action_delete_data()
+        if event.button.id == "select_button":
+            try:
+                version = int(self.query_one(Input).value)
+                await self.set_version(version)
+            except ValueError:
+                pass
 
     async def action_previous_version(self) -> None:
         current_index = list(self.versions).index(self.selected_version)
         if current_index == 0:
             return
-        self.selected_version = self.versions[current_index - 1]
-        await self.recompose()
+        await self.set_version(self.versions[current_index - 1])
 
     async def action_next_version(self) -> None:
         current_index = list(self.versions).index(self.selected_version)
         if current_index == len(self.versions) - 1:
             return
-        self.selected_version = self.versions[current_index + 1]
-        await self.recompose()
+        await self.set_version(self.versions[current_index + 1])
 
     def action_close_tab(self) -> None:
         tabbed_content = self.app.query_one(TabbedContent)
         tabbed_content.active = "main-tab"
         tabbed_content.remove_pane(self.parent.id)
+
+    def acquire_focus(self) -> None:
+        try:
+            table = self.query_one(DataTable)
+            table.focus()
+        except NoMatches:
+            collapsible = self.query_one(Collapsible)
+            collapsible.focus()
 
 
 class DownloadNotification(Screen):

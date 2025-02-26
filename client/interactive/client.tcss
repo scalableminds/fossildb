@@ -16,6 +16,8 @@ Button {
     width: 90%;
 }
 
+/* Record Explorer */
+
 #record_explorer_display {
     width: 70%;
     overflow: auto;
@@ -27,9 +29,20 @@ Button {
 }
 
 #record_explorer_info_panel {
-    width: 30%
+    width: 30%;
+    overflow: auto;
 }
 
+#version_selection {
+    
+}
+
+#select_button {
+    margin: 1 0 1 1
+}
+
+#version_list {
+}
 
 .fixed64 {
     background: #828C51;

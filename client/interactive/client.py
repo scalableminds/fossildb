@@ -1,4 +1,5 @@
 import argparse
+import asyncio
 import logging
 
 from db_connection import connect, getMultipleKeys, listKeys, listVersions
@@ -88,8 +89,14 @@ class KeyInfoWidget(Widget):
                 else "1 version"
             )
             key_info_text.append(Text(f"\n{num_versions}: "))
+            versions_to_list = self.versions
+            if len(self.versions) > 500:
+                versions_to_list = self.versions[-500:]
+                key_info_text.append(
+                    Text("Showing only last 500 versions. ", style="italic")
+                )
             key_info_text.append(
-                Text(",".join(map(str, self.versions)), style="bold white")
+                Text(",".join(map(str, versions_to_list)), style="bold white")
             )
             self.sanitized_key_name = RecordExplorer.sanitize_filename(
                 f"{self.collection}_{key}_{self.versions[-1]}"
@@ -121,6 +128,13 @@ class KeyInfoWidget(Widget):
         # Set the active tab
         tabbed_content.active = tab_id
 
+        def focus_explorer():
+            record_explorer.acquire_focus()
+
+        # By default focus is on the tabbed content, so shortcuts of the record explorer can not be used
+        # Use a timer to wait for the explorer to be fully built
+        self.set_timer(0.3, focus_explorer)
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         event.stop()
         if event.button.id == "explore-button":
@@ -129,9 +143,7 @@ class KeyInfoWidget(Widget):
     def compose(self) -> ComposeResult:
         with Vertical():
             yield Static(id="key-info-label")
-
-            exploreButton = Button(label="Explore record (e)", id="explore-button")
-            yield exploreButton
+            yield Button(label="Explore record (e)", id="explore-button")
 
 
 class RecordBrowser(Static):
@@ -315,17 +327,24 @@ class RecordBrowser(Static):
     async def estimate_key_count(self) -> None:
         """Estimate the number of keys in the collection."""
 
-        def update_count(count):
+        def update_count(count, more_available=False):
             if self.more_keys_available:
                 # This note is only shown if there are more keys available
                 table = self.query_one(DataTable)
                 more_keys_coords = (self.key_list_limit, 0)
-                table.update_cell_at(
-                    more_keys_coords, f"Found {count} keys, more on the next page..."
-                )
+                if more_available:
+                    table.update_cell_at(
+                        more_keys_coords,
+                        f"Found at least {count} keys, more on the next page...",
+                    )
+                else:
+                    table.update_cell_at(
+                        more_keys_coords,
+                        f"Found {count} keys, more on the next page...",
+                    )
 
-        # For huge collections, don't request more than 1e6 times
-        TOTAL_REQUEST_COUNT = 1e6
+        # For huge collections, don't request more than TOTAL_REQUEST_COUNT times, as to not overload the server
+        TOTAL_REQUEST_COUNT = 25
         KEY_LIST_LIMIT = 100
         request_count = 0
         count = len(self.found_keys)
@@ -338,7 +357,9 @@ class RecordBrowser(Static):
             last_key = keys[-1]
             request_count += 1
             update_count(count)
-        update_count(count)
+            # Wait here to not send all requests at once
+            await asyncio.sleep(0.2)
+        update_count(count, more_available=request_count == TOTAL_REQUEST_COUNT)
 
     def action_quit(self) -> None:
         """An action to quit the app."""
@@ -417,6 +438,13 @@ class FossilDBClient(App):
                     key_list_limit=self.key_list_limit,
                 )
         yield Footer()
+
+    def action_set_version(self, version) -> None:
+        """An action to set the version of the record.
+        Defined here because we can only access the app from the link.
+        It would be better to update the version here directly, but the client crashes when doing so.
+        """
+        self.query_one(RecordExplorer).set_version_in_selector(version)
 
 
 def init_argument_parser() -> argparse.ArgumentParser:
