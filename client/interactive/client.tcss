@@ -18,7 +18,7 @@ Button {
 
 /* Record Explorer */
 
-#record_explorer_display {
+#record-explorer-display {
     width: 70%;
     overflow: auto;
 }
@@ -28,16 +28,16 @@ Button {
     overflow: auto;
 }
 
-#record_explorer_info_panel {
+#record-explorer-info-panel {
     width: 30%;
     overflow: auto;
 }
 
-#version_selection {
+#version-selection {
     
 }
 
-#select_button {
+#select-button {
     margin: 1 0 1 1
 }
 

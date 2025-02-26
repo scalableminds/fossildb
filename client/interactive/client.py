@@ -114,7 +114,7 @@ class KeyInfoWidget(Widget):
             stub=self.stub,
             key=self.key,
             collection=self.collection,
-            id=f"record_explorer_{self.sanitized_key_name}",
+            id=f"record-explorer-{self.sanitized_key_name}",
         )
 
         if not tabbed_content.query(f"#{tab_id}"):
@@ -143,7 +143,7 @@ class KeyInfoWidget(Widget):
     def compose(self) -> ComposeResult:
         with Vertical():
             yield Static(id="key-info-label")
-            yield Button(label="Explore record (e)", id="explore-button")
+            yield Button(label="Explore record (e)", id="explore-button", disabled=True)
 
 
 class RecordBrowser(Static):
@@ -205,10 +205,13 @@ class RecordBrowser(Static):
         "annotationUpdates",
     ]
 
-    def __init__(self, stub, collection: str, key_list_limit: int, **kwargs):
+    def __init__(
+        self, stub, collection: str, prefix: str, key_list_limit: int, **kwargs
+    ):
         super().__init__(**kwargs)
         self.stub = stub
         self.collection = collection
+        self.prefix = prefix
         self.key_list_limit = key_list_limit
 
     def compose(self) -> ComposeResult:
@@ -221,6 +224,7 @@ class RecordBrowser(Static):
             )
             yield Input(
                 placeholder="Find keys with prefix: (leave empty to list all keys)",
+                value=self.prefix,
                 id="prefix",
             )
             yield ListKeysWidget(id="list-keys", stub=self.stub)
@@ -271,6 +275,8 @@ class RecordBrowser(Static):
         table.clear(columns=True)
         table.add_column("key")
         table.add_column("#versions")
+
+        app.sub_title = f"Collection: {self.collection}"
 
         # Query offset is the index of the key that will be the first key in the new list
         if self.query_offset != 0:
@@ -361,6 +367,12 @@ class RecordBrowser(Static):
             await asyncio.sleep(0.2)
         update_count(count, more_available=request_count == TOTAL_REQUEST_COUNT)
 
+    def _on_mount(self, event):
+        # Used when the collection is specified using the -c argument
+        if self.collection != "":
+            self.refresh_data()
+        return super()._on_mount(event)
+
     def action_quit(self) -> None:
         """An action to quit the app."""
         self.app.exit()
@@ -420,10 +432,11 @@ class FossilDBClient(App):
 
     title = "FossilDB Client"
 
-    def __init__(self, stub, collection, count):
+    def __init__(self, stub, collection, prefix, count):
         super().__init__()
         self.stub = stub
         self.collection = collection
+        self.prefix = prefix
         self.key_list_limit = int(count)
 
     def compose(self) -> ComposeResult:
@@ -435,6 +448,7 @@ class FossilDBClient(App):
                     id="record-browser",
                     stub=self.stub,
                     collection=self.collection,
+                    prefix=self.prefix,
                     key_list_limit=self.key_list_limit,
                 )
         yield Footer()
@@ -456,6 +470,7 @@ def init_argument_parser() -> argparse.ArgumentParser:
         nargs="?",
     )
     parser.add_argument("-c", "--collection", help="collection to use", default="")
+    parser.add_argument("-p", "--prefix", help="prefix to search for", default="")
     parser.add_argument("-n", "--count", help="number of keys to list", default=40)
     return parser
 
@@ -464,5 +479,5 @@ if __name__ == "__main__":
     parser = init_argument_parser()
     args = parser.parse_args()
     stub = connect(args.host)
-    app = FossilDBClient(stub, args.collection, args.count)
+    app = FossilDBClient(stub, args.collection, args.prefix, args.count)
     app.run()

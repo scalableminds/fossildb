@@ -101,7 +101,7 @@ class RecordExplorer(Static):
         parsed = self.parser.parse(data.hex()).to_dict()
         if len(parsed["results"]) == 0 and "remain_data" in parsed:
             return self.render_hex_dump(parsed["remain_data"])
-        return Vertical(*self.render_wire(parsed), id="record_explorer_display")
+        return Vertical(*self.render_wire(parsed), id="record-explorer-display")
 
     def decode_varint(self, value: int) -> list:
         def interpret_as_twos_complement(val: int, bits: int) -> int:
@@ -219,14 +219,14 @@ class RecordExplorer(Static):
         return Vertical(
             Static(info_text),
             Rule(),
-            Button("Download selected version", id="download_button"),
-            Button("Delete selected version", id="delete_button"),
+            Button("Download selected version", id="download-button"),
+            Button("Delete selected version", id="delete-button"),
             Rule(),
             Label("Select a version to view"),
-            Input(value=str(self.selected_version), id="version_selection"),
-            Button("Select", id="select_button"),
+            Input(value=str(self.selected_version), id="version-selection"),
+            Button("Select", id="select-button"),
             self.render_version_list(),
-            id="record_explorer_info_panel",
+            id="record-explorer-info-panel",
         )
 
     def compose(self) -> ComposeResult:
@@ -236,7 +236,7 @@ class RecordExplorer(Static):
 
     @on(Input.Submitted)
     async def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id == "version_selection":
+        if event.input.id == "version-selection":
             try:
                 version = int(event.input.value)
                 await self.set_version(version)
@@ -257,11 +257,11 @@ class RecordExplorer(Static):
             version = int(event.button.id.split("_")[1])
             self.selected_version = version
             await self.recompose()
-        if event.button.id == "download_button":
+        if event.button.id == "download-button":
             self.action_download_data()
-        if event.button.id == "delete_button":
+        if event.button.id == "delete-button":
             self.action_delete_data()
-        if event.button.id == "select_button":
+        if event.button.id == "select-button":
             try:
                 version = int(self.query_one(Input).value)
                 await self.set_version(version)
