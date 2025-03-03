@@ -120,7 +120,7 @@ class KeyInfoWidget(Widget):
         if not tabbed_content.query(f"#{tab_id}"):
             tabbed_content.add_pane(
                 TabPane(
-                    "Record Explorer " + self.key,
+                    "Record Explorer " + self.sanitized_key_name,
                     record_explorer,
                     id=tab_id,
                 )
@@ -195,6 +195,7 @@ class RecordBrowser(Static):
 
     knownCollections = [
         "skeletons",
+        "skeletonTreeBodies",
         "volumes",
         "volumeData",
         "volumeSegmentIndex",
