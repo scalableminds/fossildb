@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import logging
+import random
 
 from db_connection import connect, getMultipleKeys, listKeys, listVersions
 from record_explorer import RecordExplorer
@@ -101,6 +102,9 @@ class KeyInfoWidget(Widget):
             self.sanitized_key_name = RecordExplorer.sanitize_filename(
                 f"{self.collection}_{key}_{self.versions[-1]}"
             )
+            self.app.query_one(RecordBrowser).update_table_version_number(
+                key, len(self.versions)
+            )
         except Exception as e:
             key_info_text.append(Text("\nCould not load versions: " + str(e)))
         key_info_label.update(key_info_text)
@@ -187,6 +191,8 @@ class RecordBrowser(Static):
     prefix = ""
     collection = "volumeData"
 
+    performance_mode = True
+
     # found_keys stores all found keys of the current collection / prefix
     found_keys = []
 
@@ -207,13 +213,20 @@ class RecordBrowser(Static):
     ]
 
     def __init__(
-        self, stub, collection: str, prefix: str, key_list_limit: int, **kwargs
+        self,
+        stub,
+        collection: str,
+        prefix: str,
+        key_list_limit: int,
+        performance_mode: bool,
+        **kwargs,
     ):
         super().__init__(**kwargs)
         self.stub = stub
         self.collection = collection
         self.prefix = prefix
         self.key_list_limit = key_list_limit
+        self.performance_mode = performance_mode
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -247,12 +260,23 @@ class RecordBrowser(Static):
     @work
     async def load_version_number(self, key: str, key_index: int) -> None:
         table = self.query_one(DataTable)
+        await asyncio.sleep(
+            random.random() * 2
+        )  # Having all updates at once slows down the app
         try:
             versions = listVersions(self.stub, self.collection, key)
             numVersions = len(versions)
             table.update_cell_at((key_index, 1), str(numVersions))
         except Exception as e:
             table.update_cell_at((key_index, 1), "Could not load versions: " + str(e))
+
+    def update_table_version_number(self, key: str, version_number: int) -> None:
+        table = self.query_one(DataTable)
+        for row_index, row_key in enumerate(table.rows.keys()):
+            content = table.get_row(row_key)
+            if content[0] == key:
+                table.update_cell_at((row_index, 1), str(version_number))
+                break
 
     def fetch_keys(self, query_after_key: str, limit: int) -> list:
         if self.prefix != "":
@@ -303,13 +327,15 @@ class RecordBrowser(Static):
                 self.found_keys.extend(result_keys)
 
             if self.more_keys_available:
-                self.estimate_key_count()
+                if not self.performance_mode:
+                    self.estimate_key_count()
 
             for i, key in enumerate(result_keys):
                 label = Text(str(i + self.query_offset), style="#B0FC38 italic")
                 table.add_row(key, "", label=label)
                 # Asynchronously fetch the number of versions for each key
-                self.load_version_number(key, i)
+                if not self.performance_mode:
+                    self.load_version_number(key, i)
             if self.more_keys_available:
                 table.add_row(
                     f"Found more than {self.key_list_limit} keys, more on the next page...",
@@ -433,12 +459,13 @@ class FossilDBClient(App):
 
     title = "FossilDB Client"
 
-    def __init__(self, stub, collection, prefix, count):
+    def __init__(self, stub, collection, prefix, count, performance_mode):
         super().__init__()
         self.stub = stub
         self.collection = collection
         self.prefix = prefix
         self.key_list_limit = int(count)
+        self.performance_mode = performance_mode
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
@@ -451,6 +478,7 @@ class FossilDBClient(App):
                     collection=self.collection,
                     prefix=self.prefix,
                     key_list_limit=self.key_list_limit,
+                    performance_mode=self.performance_mode,
                 )
         yield Footer()
 
@@ -473,6 +501,16 @@ def init_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("-c", "--collection", help="collection to use", default="")
     parser.add_argument("-p", "--prefix", help="prefix to search for", default="")
     parser.add_argument("-n", "--count", help="number of keys to list", default=40)
+
+    # Performance mode is used to speed up the app by not requesting and updating too much
+    # On by default, so you can disable it with the flag
+    parser.add_argument(
+        "--no-performance-mode",
+        help="Disable performance mode",
+        action="store_true",
+        default=False,
+    )
+
     return parser
 
 
@@ -480,5 +518,7 @@ if __name__ == "__main__":
     parser = init_argument_parser()
     args = parser.parse_args()
     stub = connect(args.host)
-    app = FossilDBClient(stub, args.collection, args.prefix, args.count)
+    app = FossilDBClient(
+        stub, args.collection, args.prefix, args.count, not args.no_performance_mode
+    )
     app.run()
