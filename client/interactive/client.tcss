@@ -1,16 +1,61 @@
-ListKeysWidget #list-keys {
+DownloadNotification #list-keys {
     layout: horizontal;
     color: red;
 }
 
 #key-info {
     width: 30%;
+    margin-left: 1;
 }
 
 #key-info-label {
-    height: 50%;
+    padding: 2 0
 }
 
 Button {
-    width: 100%;
+    width: 90%;
+}
+
+/* Record Explorer */
+
+#record-explorer-display {
+    width: 70%;
+    overflow: auto;
+}
+
+#hexdump-table {
+    width: 70%;
+    overflow: auto;
+}
+
+#record-explorer-info-panel {
+    width: 30%;
+    overflow: auto;
+}
+
+#version-selection {
+    
+}
+
+#select-button {
+    margin: 1 0 1 1
+}
+
+#version_list {
+}
+
+.fixed64 {
+    background: #828C51;
+}
+
+.varint {
+    background: #002626;
+}
+
+.string {
+    background: #2E0E02;
+}
+
+.protobuf {
+    background: #56667A
 }

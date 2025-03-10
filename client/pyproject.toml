@@ -1,0 +1,21 @@
+[project]
+name = "client"
+version = "0.1.0"
+description = "FossilDB interactive client"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "argparse>=1.4.0",
+    "grpcio-health-checking>=1.70.0",
+    "grpcio-tools>=1.70.0",
+    "protobuf-decoder>=0.4.0",
+    "rich>=13.9.4",
+    "textual>=2.1.2",
+    "textual-dev>=1.7.0",
+]
+
+[dependency-groups]
+dev = [
+    "black>=25.1.0",
+    "isort>=6.0.1",
+]
