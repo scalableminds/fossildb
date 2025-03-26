@@ -76,6 +76,18 @@ class FossilDBGrpcImpl(storeManager: StoreManager)
     GetMultipleKeysByListWithMultipleVersionsReply(success = true, None, keyVersionsValuesPairs)
   } { errorMsg => GetMultipleKeysByListWithMultipleVersionsReply(success = false, errorMsg) }
 
+  override def getMultipleKeysByList(req: GetMultipleKeysByListRequest): Future[GetMultipleKeysByListReply] = withExceptionHandler(req) {
+    val store = storeManager.getStore(req.collection)
+    val versionValueBoxes = req.keys.map { key =>
+      val versionedKeyValuePairOpt = store.withRawRocksIterator { rocksIt => store.get(rocksIt, key, req.version) }
+      versionedKeyValuePairOpt match {
+        case Some(pair) => VersionValueBoxProto(Some(VersionValuePairProto(pair.version, ByteString.copyFrom(pair.value))), errorMessage = None)
+        case None => VersionValueBoxProto(None, errorMessage = None)
+      }
+    }
+    GetMultipleKeysByListReply(success = true, None, versionValueBoxes)
+  } { errorMsg => GetMultipleKeysByListReply(success = false, errorMsg) }
+
   override def putMultipleKeysWithMultipleVersions(req: PutMultipleKeysWithMultipleVersionsRequest): Future[PutMultipleKeysWithMultipleVersionsReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
     require(req.versionedKeyValuePairs.forall(_.version >= 0), "Version numbers must be non-negative")
