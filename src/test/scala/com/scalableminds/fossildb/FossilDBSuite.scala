@@ -441,6 +441,41 @@ class FossilDBSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHelpers
     assert(reply.keyVersionsValuesPairs.isEmpty)
   }
 
+  "GetMultipleKeysByList" should "return version-value tuples for existing, and empty for missing keys" in {
+    client.put(PutRequest(collectionA, aKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aNotherKey, Some(0), testData2))
+    client.put(PutRequest(collectionA, aNotherKey, Some(1), testData3))
+    val reply = client.getMultipleKeysByList(GetMultipleKeysByListRequest(collectionA, keys = Seq(aKey, aNotherKey, aThirdKey)))
+    assert(reply.versionValueBoxes.length == 3)
+    assert(reply.versionValueBoxes(0).versionValuePair.exists(_.value == testData1))
+    assert(reply.versionValueBoxes(1).versionValuePair.exists(_.value == testData3))
+    assert(reply.versionValueBoxes(1).versionValuePair.exists(_.actualVersion == 1))
+    assert(reply.versionValueBoxes(2).versionValuePair.isEmpty)
+  }
+
+  it should "not return something newer than the requested version" in {
+    client.put(PutRequest(collectionA, aKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aNotherKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aNotherKey, Some(1), testData2))
+    client.put(PutRequest(collectionA, aNotherKey, Some(2), testData3))
+    client.put(PutRequest(collectionA, aThirdKey, Some(2), testData3))
+    val reply = client.getMultipleKeysByList(GetMultipleKeysByListRequest(collectionA, keys = Seq(aKey, aNotherKey, aThirdKey), version = Some(1)))
+    assert(reply.versionValueBoxes.length == 3)
+    assert(reply.versionValueBoxes(0).versionValuePair.exists(_.value == testData1))
+    assert(reply.versionValueBoxes(0).versionValuePair.exists(_.actualVersion == 0))
+    assert(reply.versionValueBoxes(1).versionValuePair.exists(_.value == testData2))
+    assert(reply.versionValueBoxes(1).versionValuePair.exists(_.actualVersion == 1))
+    assert(reply.versionValueBoxes(2).versionValuePair.isEmpty)
+  }
+
+  it should "return only empty boxes if nothing matches" in {
+    client.put(PutRequest(collectionA, aKey, Some(2), testData1))
+    client.put(PutRequest(collectionA, aNotherKey, Some(2), testData1))
+    val reply = client.getMultipleKeysByList(GetMultipleKeysByListRequest(collectionA, keys = Seq(aKey, aNotherKey, aThirdKey), version = Some(1)))
+    assert(reply.versionValueBoxes.length == 3)
+    assert(reply.versionValueBoxes.forall(_.versionValuePair.isEmpty))
+  }
+
   "Backup" should "create non-empty backup directory" in {
     client.put(PutRequest(collectionA, aKey, Some(0), testData1))
     client.backup(BackupRequest())
