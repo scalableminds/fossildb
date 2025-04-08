@@ -34,8 +34,8 @@ class StoreManager(dataDir: Path, backupDir: Path, columnFamilies: List[String],
   private val backupInProgress = new AtomicBoolean(false)
   private val restoreInProgress = new AtomicBoolean(false)
 
-  private def failDuringRestore(): Unit = if (restoreInProgress.get) throw new Exception("Unavilable during restore-from-backup operation")
-  private def failDuringBackup(): Unit = if (backupInProgress.get) throw new Exception("Unavilable during backup")
+  private def failDuringRestore(): Unit = if (restoreInProgress.get) throw new Exception("Unavailable during restore-from-backup operation")
+  private def failDuringBackup(): Unit = if (backupInProgress.get) throw new Exception("Unavailable during backup")
 
 
   def backup: Option[BackupInfo] = {

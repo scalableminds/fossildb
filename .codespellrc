@@ -1,0 +1,3 @@
+[codespell]
+# Ref: https://github.com/codespell-project/codespell#using-a-config-file
+skip = *.svg,*.sublime-workspace,*.log,.codespellrc,./target

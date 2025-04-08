@@ -237,7 +237,7 @@ class FossilDBSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHelpers
     assert(reply.keys(2) == "123458")
   }
 
-  "GetMultipleVersions" should "return all versions in decending order if called without limits" in {
+  "GetMultipleVersions" should "return all versions in descending order if called without limits" in {
     client.put(PutRequest(collectionA, aKey, Some(0), testData1))
     client.put(PutRequest(collectionA, aKey, Some(1), testData2))
     client.put(PutRequest(collectionA, aKey, Some(2), testData3))
