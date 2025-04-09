@@ -43,7 +43,7 @@ class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHel
       .setStatsDumpPeriodSec(100)
     val cfListRef: mutable.Buffer[ColumnFamilyDescriptor] = mutable.Buffer()
     val configOptions = new ConfigOptions()
-    // if successful, the rocksdb writes the loaded options to a file that can then be retreived with loadLatestOptions
+    // if successful, the rocksdb writes the loaded options to a file that can then be retrieved with loadLatestOptions
     // we test that that one now includes the value 700 from the file above, rather than the 100 specified as a default
     org.rocksdb.OptionsUtil.loadLatestOptions(configOptions, dataDir.toString, options, cfListRef.asJava)
     assert(options.statsDumpPeriodSec() == 700)
