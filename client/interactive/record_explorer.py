@@ -335,10 +335,14 @@ class DeleteModal(Screen):
         self.key = key
         self.version = version
 
+        self.sanitized_key = RecordExplorer.sanitize_filename(
+            f"{self.collection}_{self.key}_{self.version}"
+        )
+
     def compose(self) -> ComposeResult:
         yield Vertical(
             Label(
-                f"Are you sure you want to delete version {self.version} of {self.collection}:{self.key}?",
+                f"Are you sure you want to delete {self.sanitized_key}",
                 id="note",
             ),
             Button("Yes", variant="error", id="yes"),
