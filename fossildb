@@ -6,7 +6,7 @@ FOSSILDB_HOME=$(dirname $(readlink -f $0))
 if [ "$(id -u)" = '0' ]; then
   for SUBDIR in data backup; do
     DIR=$FOSSILDB_HOME/$SUBDIR
-    if [ -d "$DIR" ]; then
+    if [ -d "$DIR" ] && [ "$(stat -c '%U' "$DIR")" != "fossildb" ]; then
       chown -R fossildb  $DIR
     fi
   done
