@@ -96,6 +96,24 @@ class KeyOnlyIterator[T](rocksIt: RocksIterator, startAfterKey: Option[String], 
 
 class VersionedKeyValueStore(underlying: RocksDBStore) {
 
+  /*
+     Compare-and-set (see putIfVersionMatches) has to read a key and write it
+     back with nothing in between. RocksDB is opened here as a plain DB rather
+     than an OptimisticTransactionDB, so the exclusion is ours to provide: a
+     fixed set of locks, picked by key hash. Two different keys may share one
+     lock and wait on each other needlessly, which costs a little throughput and
+     nothing in correctness. Locking per key instead would mean a map that grows
+     with the key space and has to be pruned.
+
+     This holds within one server, which is where FossilDB's data lives: one
+     process owns the RocksDB directory, so there is no second writer to
+     exclude.
+   */
+  private val keyLockCount = 1024
+  private val keyLocks: Array[Object] = Array.fill(keyLockCount)(new Object)
+
+  private def keyLockFor(key: String): Object = keyLocks(Math.floorMod(key.hashCode, keyLockCount))
+
   def withRawRocksIterator[T](block: RocksIterator => T): T = underlying.withRawRocksIterator(block)
 
   def get(rocksIt: RocksIterator, key: String, version: Option[Long] = None): Option[VersionedKeyValuePair[Array[Byte]]] =
@@ -192,6 +210,35 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
     requireValidKey(key)
     underlying.put(VersionedKey.asString(key, version), value)
   }
+
+  /*
+     Write a new version of key only if the newest stored version is the one the
+     caller expects; None expects the key not to exist at all. Returns whether
+     the write happened, and the version now in effect (None only if the key
+     still does not exist).
+
+     The version written is always greater than the one already stored, even
+     when the caller asked for a lower one. A caller whose clock runs slow would
+     otherwise write a version that every subsequent read skips over, which is a
+     silently lost write; here the reply tells them which version they actually
+     got.
+   */
+  def putIfVersionMatches(key: String,
+                          expectedActualVersion: Option[Long],
+                          newVersion: Option[Long],
+                          value: Array[Byte]): (Boolean, Option[Long]) =
+    keyLockFor(key).synchronized {
+      requireValidKey(key)
+      val currentVersionOpt: Option[Long] = withRawRocksIterator { rocksIt => get(rocksIt, key, None).map(_.version) }
+      if (currentVersionOpt != expectedActualVersion) (false, currentVersionOpt)
+      else {
+        val lowestAllowed = currentVersionOpt.map(_ + 1).getOrElse(0L)
+        val versionToWrite = Math.max(newVersion.getOrElse(lowestAllowed), lowestAllowed)
+        require(versionToWrite >= 0, "Version numbers must be non-negative")
+        put(key, versionToWrite, value)
+        (true, Some(versionToWrite))
+      }
+    }
 
   def delete(key: String, version: Long): Unit = {
     requireValidKey(key)
