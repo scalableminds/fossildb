@@ -1,9 +1,11 @@
 import sbt._
+import scala.sys.process._
+import scala.util.Try
 
 name := "fossildb"
 
 def getVersionFromGit: String = {
-  def run(cmd: String): String = new java.io.BufferedReader(new java.io.InputStreamReader(java.lang.Runtime.getRuntime.exec(cmd).getInputStream)).readLine()
+  def run(cmd: String): String = cmd.!!.trim
   def getBranch = run("git rev-parse --abbrev-ref HEAD")
 
   if (sys.env.contains("CI") && getBranch == "master") {
@@ -57,19 +59,7 @@ assembly / assemblyJarName := "fossildb.jar"
 
 lazy val buildInfoSettings = Seq(
   buildInfoKeys := Seq[BuildInfoKey](version,
-    "commitHash" -> new java.lang.Object() {
-      override def toString: String = {
-        try {
-          val extracted = new java.io.InputStreamReader(java.lang.Runtime.getRuntime.exec("git rev-parse HEAD").getInputStream)
-          val str = new java.io.BufferedReader(extracted).readLine()
-          if (str == null) {
-            "get git hash failed"
-          } else str
-        } catch {
-          case t: Throwable => "get git hash failed"
-        }
-      }
-    }.toString()
+    "commitHash" -> Try("git rev-parse HEAD".!!.trim).getOrElse("get git hash failed")
   ),
   buildInfoPackage := "fossildb",
   buildInfoOptions := Seq(BuildInfoOption.BuildTime, BuildInfoOption.ToJson)
