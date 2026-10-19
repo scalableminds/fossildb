@@ -42,8 +42,6 @@ class VersionFilterIterator(it: RocksDBIterator, version: Option[Long]) extends 
 
   private var currentKey: Option[String] = None
 
-  // Skip entries in place on a single buffered iterator. Re-wrapping with dropWhile on every hasNext
-  // would nest one iterator layer per call, making a full scan super-linear and eventually overflowing the stack.
   private val versionedIterator = it.flatMap{ pair =>
     VersionedKey(pair.key).map(VersionedKeyValuePair(_, pair.value))
   }.buffered
