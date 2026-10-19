@@ -42,14 +42,15 @@ class VersionFilterIterator(it: RocksDBIterator, version: Option[Long]) extends 
 
   private var currentKey: Option[String] = None
 
-  private var versionedIterator = it.flatMap{ pair =>
+  private val versionedIterator = it.flatMap{ pair =>
     VersionedKey(pair.key).map(VersionedKeyValuePair(_, pair.value))
-  }
+  }.buffered
+
+  private def shouldSkip(pair: VersionedKeyValuePair[Array[Byte]]): Boolean =
+    currentKey.contains(pair.key) || version.exists(pair.version > _)
 
   override def hasNext: Boolean = {
-    versionedIterator = versionedIterator.dropWhile { pair =>
-      currentKey.contains(pair.key) || version.exists(pair.version > _)
-    }
+    while (versionedIterator.hasNext && shouldSkip(versionedIterator.head)) versionedIterator.next()
     versionedIterator.hasNext
   }
 

@@ -301,6 +301,19 @@ class FossilDBSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHelpers
     assert(reply.actualVersions.contains(0))
   }
 
+  it should "return the newest version of each key in a large collection" in {
+    val keyCount = 20000
+    val keys = (0 until keyCount).map(i => f"key$i%06d")
+    keys.grouped(1000).foreach { batch =>
+      client.putMultipleKeysWithMultipleVersions(PutMultipleKeysWithMultipleVersionsRequest(collectionA,
+        batch.flatMap(key => Seq(VersionedKeyValuePairProto(key, 0, testData1), VersionedKeyValuePairProto(key, 1, testData2)))))
+    }
+    val reply = client.getMultipleKeys(GetMultipleKeysRequest(collectionA))
+    assert(reply.keys == keys)
+    assert(reply.actualVersions.forall(_ == 1))
+    assert(reply.values.forall(_ == testData2))
+  }
+
   it should "return keys of matching version" in {
     client.put(PutRequest(collectionA, aKey, Some(0), testData1))
     client.put(PutRequest(collectionA, aNotherKey, Some(0), testData1))
