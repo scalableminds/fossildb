@@ -508,6 +508,23 @@ class FossilDBSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHelpers
     assert(testData1 == reply.value)
   }
 
+  "ExportDB" should "write a new DB that can be opened afterwards" in {
+    client.put(PutRequest(collectionA, aKey, Some(0), testData1))
+    client.put(PutRequest(collectionB, aNotherKey, Some(1), testData2))
+    val exportDir = Paths.get(testTempDir, "export")
+    assert(client.exportDB(ExportDBRequest(exportDir.toString)).success)
+
+    // fails with a lock error if the export did not close the new DB
+    val exportedStoreManager = new StoreManager(exportDir, backupDir, List(collectionA, collectionB), None)
+    def read(collection: String, key: String) = {
+      val store = exportedStoreManager.getStore(collection)
+      store.withRawRocksIterator(it => store.get(it, key, None)).map(pair => (pair.version, ByteString.copyFrom(pair.value)))
+    }
+    assert(read(collectionA, aKey).contains((0L, testData1)))
+    assert(read(collectionB, aNotherKey).contains((1L, testData2)))
+    exportedStoreManager.close
+  }
+
   "ListVersions" should "list all versions" in {
     client.put(PutRequest(collectionA, aKey, Some(0), testData1))
     client.put(PutRequest(collectionA, aKey, Some(2), testData1))
