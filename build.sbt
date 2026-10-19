@@ -4,16 +4,19 @@ import scala.util.Try
 
 name := "fossildb"
 
-def getVersionFromGit: String = {
-  def run(cmd: String): String = cmd.!!.trim
-  def getBranch = run("git rev-parse --abbrev-ref HEAD")
+def runCmd(cmd: String): Option[String] = Try(cmd.!!(ProcessLogger(_ => ())).trim).toOption
 
-  if (sys.env.contains("CI") && getBranch == "master") {
-    val oldVersion = run("git describe --tags --abbrev=0").split('.').toList.map(_.toInt)
+def getVersionFromGit: String = {
+  val branch = runCmd("git rev-parse --abbrev-ref HEAD").getOrElse("unknown")
+
+  if (sys.env.contains("CI") && branch == "master") {
+    val lastTag = runCmd("git describe --tags --abbrev=0").getOrElse(
+      sys.error("Could not determine release version: no git tag reachable (shallow clone or tags not fetched?)"))
+    val oldVersion = lastTag.split('.').toList.map(_.toInt)
     (oldVersion.init :+ (oldVersion.last + 1)).mkString(".")
   } else {
     // Branch names may contain characters like '/' that are invalid in versions (rejected by coursier)
-    "DEV-" + getBranch.replaceAll("[^A-Za-z0-9._-]", "-")
+    "DEV-" + branch.replaceAll("[^A-Za-z0-9._-]", "-")
   }
 }
 
@@ -59,7 +62,7 @@ assembly / assemblyJarName := "fossildb.jar"
 
 lazy val buildInfoSettings = Seq(
   buildInfoKeys := Seq[BuildInfoKey](version,
-    "commitHash" -> Try("git rev-parse HEAD".!!.trim).getOrElse("get git hash failed")
+    "commitHash" -> runCmd("git rev-parse HEAD").getOrElse("get git hash failed")
   ),
   buildInfoPackage := "fossildb",
   buildInfoOptions := Seq(BuildInfoOption.BuildTime, BuildInfoOption.ToJson)
