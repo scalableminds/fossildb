@@ -155,6 +155,22 @@ class FossilDBSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHelpers
     assert(testData1 == reply.value)
   }
 
+  "Non-ASCII keys" should "round-trip through all key-based calls" in {
+    val umlautKey = "äöü"
+    val umlautKey2 = "ä-ß"
+    val cjkKey = "日本語"
+    Seq(umlautKey, umlautKey2, cjkKey, aKey).foreach(key => client.put(PutRequest(collectionA, key, Some(0), testData1)))
+
+    assert(client.get(GetRequest(collectionA, umlautKey)).value == testData1)
+    assert(client.listKeys(ListKeysRequest(collectionA)).keys.toSet == Set(umlautKey, umlautKey2, cjkKey, aKey))
+    assert(client.listKeys(ListKeysRequest(collectionA, prefix = Some("ä"))).keys.toSet == Set(umlautKey, umlautKey2))
+    assert(client.getMultipleKeys(GetMultipleKeysRequest(collectionA, prefix = Some("ä"))).keys.toSet == Set(umlautKey, umlautKey2))
+    assert(client.getMultipleVersions(GetMultipleVersionsRequest(collectionA, cjkKey)).versions == Seq(0))
+
+    client.deleteAllByPrefix(DeleteAllByPrefixRequest(collectionA, "ä"))
+    assert(client.listKeys(ListKeysRequest(collectionA)).keys.toSet == Set(cjkKey, aKey))
+  }
+
   "DeleteAllByPrefix" should "delete all versions of all values matching this prefix" in {
     client.put(PutRequest(collectionA, "prefixedA", Some(0), testData1))
     client.put(PutRequest(collectionA, "prefixedA", Some(1), testData1))
