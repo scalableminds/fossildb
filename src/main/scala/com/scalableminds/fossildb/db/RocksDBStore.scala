@@ -3,6 +3,7 @@ package com.scalableminds.fossildb.db
 import com.typesafe.scalalogging.LazyLogging
 import org.rocksdb._
 
+import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path}
 import java.util
 import scala.collection.mutable
@@ -35,8 +36,13 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
       }
     }
     options.setCreateIfMissing(true).setCreateMissingColumnFamilies(true)
-    val defaultColumnFamilyOptions: ColumnFamilyOptions = cfListRef.find(_.getName sameElements RocksDB.DEFAULT_COLUMN_FAMILY).map(_.getOptions).getOrElse(columnOptions)
-    val newColumnFamilyDescriptors = (columnFamilies.map(_.getBytes) :+ RocksDB.DEFAULT_COLUMN_FAMILY).diff(cfListRef.toList.map(_.getName)).map(new ColumnFamilyDescriptor(_, defaultColumnFamilyOptions))
+    val defaultColumnFamilyName = new String(RocksDB.DEFAULT_COLUMN_FAMILY, StandardCharsets.UTF_8)
+    def nameOf(descriptor: ColumnFamilyDescriptor) = new String(descriptor.getName, StandardCharsets.UTF_8)
+    val defaultColumnFamilyOptions: ColumnFamilyOptions = cfListRef.find(nameOf(_) == defaultColumnFamilyName).map(_.getOptions).getOrElse(columnOptions)
+    // Compare by name (not by Array[Byte], which has reference equality), so column families from the options file are not added twice
+    val columnFamiliesFromOptionsFile = cfListRef.map(nameOf).toSet
+    val newColumnFamilyDescriptors = (columnFamilies :+ defaultColumnFamilyName).distinct.filterNot(columnFamiliesFromOptionsFile.contains)
+      .map(name => new ColumnFamilyDescriptor(name.getBytes(StandardCharsets.UTF_8), defaultColumnFamilyOptions))
     val columnFamilyDescriptors = cfListRef.toList ::: newColumnFamilyDescriptors
     logger.info("Opening RocksDB at " + dataDir.toAbsolutePath)
     val columnFamilyHandles = new util.ArrayList[ColumnFamilyHandle]
@@ -45,7 +51,9 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
       dataDir.toAbsolutePath.toString,
       columnFamilyDescriptors.asJava,
       columnFamilyHandles)
-    (db, columnFamilies.zip(columnFamilyHandles.asScala).toMap)
+    // Handles are returned in descriptor order, which differs from the configured order when an options file is used
+    val handlesByName = columnFamilyDescriptors.map(nameOf).zip(columnFamilyHandles.asScala).toMap
+    (db, columnFamilies.map(name => name -> handlesByName(name)).toMap)
   }
 
   def getStoreForColumnFamily(columnFamily: String): Option[RocksDBStore] = {
