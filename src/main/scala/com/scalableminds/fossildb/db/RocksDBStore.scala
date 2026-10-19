@@ -3,6 +3,7 @@ package com.scalableminds.fossildb.db
 import com.typesafe.scalalogging.LazyLogging
 import org.rocksdb._
 
+import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path}
 import java.util
 import scala.collection.mutable
@@ -87,7 +88,7 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
       val store = getStoreForColumnFamily(name).get
       store.withRawRocksIterator { rocksIt =>
         val dataIterator = RocksDBStore.scan(rocksIt, "", None)
-        dataIterator.foreach(el => newManager.db.put(handle, el.key.getBytes, el.value))
+        dataIterator.foreach(el => newManager.db.put(handle, RocksDBStore.encodeKey(el.key), el.value))
       }
     }
     logger.info("Writing data completed. Start compaction")
@@ -103,26 +104,30 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
 
 class RocksDBKeyIterator(it: RocksIterator, prefix: Option[String]) extends Iterator[String] with LazyLogging {
 
-  override def hasNext: Boolean = it.isValid && prefix.forall(it.key().startsWith(_))
+  private val prefixBytes = prefix.map(RocksDBStore.encodeKey)
+
+  override def hasNext: Boolean = it.isValid && prefixBytes.forall(RocksDBStore.startsWith(it.key(), _))
 
   override def next(): String = {
-    val key = new String(it.key().map(_.toChar))
+    val key = RocksDBStore.decodeKey(it.key())
     it.next()
     key
   }
 
   def peek: String = {
-    new String(it.key().map(_.toChar))
+    RocksDBStore.decodeKey(it.key())
   }
 
 }
 
 class RocksDBIterator(it: RocksIterator, prefix: Option[String]) extends Iterator[KeyValuePair[Array[Byte]]] {
 
-  override def hasNext: Boolean = it.isValid && prefix.forall(it.key().startsWith(_))
+  private val prefixBytes = prefix.map(RocksDBStore.encodeKey)
+
+  override def hasNext: Boolean = it.isValid && prefixBytes.forall(RocksDBStore.startsWith(it.key(), _))
 
   override def next(): KeyValuePair[Array[Byte]] = {
-    val value = KeyValuePair(new String(it.key().map(_.toChar)), it.value())
+    val value = KeyValuePair(RocksDBStore.decodeKey(it.key()), it.value())
     it.next()
     value
   }
@@ -141,28 +146,36 @@ class RocksDBStore(db: RocksDB, handle: ColumnFamilyHandle) extends LazyLogging 
   }
 
   def get(key: String): Array[Byte] = {
-    db.get(handle, key.getBytes())
+    db.get(handle, RocksDBStore.encodeKey(key))
   }
 
   def put(key: String, value: Array[Byte]): Unit = {
-    db.put(handle, key.getBytes(), value)
+    db.put(handle, RocksDBStore.encodeKey(key), value)
   }
 
   def delete(key: String): Unit = {
-    db.delete(handle, key.getBytes())
+    db.delete(handle, RocksDBStore.encodeKey(key))
   }
 
 }
 
 object RocksDBStore {
 
+  // Keys are always stored as UTF-8, independent of the platform's default charset
+  def encodeKey(key: String): Array[Byte] = key.getBytes(StandardCharsets.UTF_8)
+
+  def decodeKey(key: Array[Byte]): String = new String(key, StandardCharsets.UTF_8)
+
+  def startsWith(key: Array[Byte], prefix: Array[Byte]): Boolean =
+    key.length >= prefix.length && util.Arrays.equals(key, 0, prefix.length, prefix, 0, prefix.length)
+
   def scan(rocksIt: RocksIterator, key: String, prefix: Option[String]): RocksDBIterator = {
-    rocksIt.seek(key.getBytes())
+    rocksIt.seek(encodeKey(key))
     new RocksDBIterator(rocksIt, prefix)
   }
 
   def scanKeysOnly(rocksIt: RocksIterator, key: String, prefix: Option[String]): RocksDBKeyIterator = {
-    rocksIt.seek(key.getBytes())
+    rocksIt.seek(encodeKey(key))
     new RocksDBKeyIterator(rocksIt, prefix)
   }
 
