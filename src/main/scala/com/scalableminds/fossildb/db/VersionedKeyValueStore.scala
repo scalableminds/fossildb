@@ -170,27 +170,37 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
 
   def deleteMultipleVersions(rocksIt: RocksIterator, key: String, oldestVersion: Option[Long] = None, newestVersion: Option[Long] = None): Unit = {
     @tailrec
-    def deleteIter(versionIterator: Iterator[VersionedKey]): Unit = {
+    def deleteIter(versionIterator: Iterator[VersionedKey], batch: RocksDBWriteBatch): Unit = {
       if (versionIterator.hasNext) {
         val item = versionIterator.next()
         if (item.version >= oldestVersion.getOrElse(0L)) {
-          delete(item.key, item.version)
-          deleteIter(versionIterator)
+          batch.delete(VersionedKey.asString(item.key, item.version))
+          deleteIter(versionIterator, batch)
         }
       }
     }
 
     val versionsIterator = scanVersionsOnly(rocksIt, key, newestVersion)
-    deleteIter(versionsIterator)
+    underlying.withWriteBatch(batch => deleteIter(versionsIterator, batch))
   }
 
   def deleteAllByPrefix(rocksIt: RocksIterator, prefix: String): Unit = {
-    RocksDBStore.scanKeysOnly(rocksIt, prefix, Some(prefix)).foreach(underlying.delete)
+    underlying.withWriteBatch { batch =>
+      RocksDBStore.scanKeysOnly(rocksIt, prefix, Some(prefix)).foreach(batch.delete)
+    }
   }
 
   def put(key: String, version: Long, value: Array[Byte]): Unit = {
     requireValidKey(key)
     underlying.put(VersionedKey.asString(key, version), value)
+  }
+
+  // Writes all entries atomically: either all of them are stored, or none (e.g. if one key is invalid)
+  def putMultiple(entries: Seq[VersionedKeyValuePair[Array[Byte]]]): Unit = {
+    entries.foreach(entry => requireValidKey(entry.key))
+    underlying.withWriteBatch { batch =>
+      entries.foreach(entry => batch.put(entry.versionedKey.toString, entry.value))
+    }
   }
 
   def delete(key: String, version: Long): Unit = {
