@@ -99,6 +99,14 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
 
   def withRawRocksIterator[T](block: RocksIterator => T): T = underlying.withRawRocksIterator(block)
 
+  // Iterator that cannot move past the versions of key
+  def withKeyIterator[T](key: String)(block: RocksIterator => T): T =
+    withPrefixIterator(Some(s"$key${VersionedKey.versionSeparator}"))(block)
+
+  // Iterator that cannot move past the keys starting with prefix (unbounded if there is no prefix)
+  def withPrefixIterator[T](prefix: Option[String])(block: RocksIterator => T): T =
+    underlying.withBoundedRocksIterator(prefix.flatMap(p => RocksDBStore.prefixUpperBound(RocksDBStore.encodeKey(p))))(block)
+
   def get(rocksIt: RocksIterator, key: String, version: Option[Long] = None): Option[VersionedKeyValuePair[Array[Byte]]] =
     scanVersionValuePairs(rocksIt, key, version).nextOption()
 

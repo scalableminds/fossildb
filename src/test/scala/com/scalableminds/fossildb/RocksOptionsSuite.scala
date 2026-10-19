@@ -1,14 +1,14 @@
 package com.scalableminds.fossildb
 
 import java.io.File
-import java.nio.file.Paths
+import java.nio.file.{Files, Paths}
 import com.scalableminds.fossildb.db.StoreManager
-import org.rocksdb.{ColumnFamilyDescriptor, ConfigOptions, DBOptions, Env}
+import org.rocksdb.{ColumnFamilyDescriptor, CompressionType, ConfigOptions, DBOptions, Env}
 import org.scalatest.BeforeAndAfterEach
 import org.scalatest.flatspec.AnyFlatSpec
 
 import scala.collection.mutable
-import scala.jdk.CollectionConverters.BufferHasAsJava
+import scala.jdk.CollectionConverters.{BufferHasAsJava, IteratorHasAsScala}
 
 
 class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHelpers {
@@ -48,6 +48,28 @@ class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHel
     org.rocksdb.OptionsUtil.loadLatestOptions(configOptions, dataDir.toString, options, cfListRef.asJava)
     assert(options.statsDumpPeriodSec() == 700)
     storeManager.close
+  }
+
+  it should "apply the default tuning (compression, file size, block cache) without a config file" in {
+    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, None, blockCacheSizeBytes = 64L * 1024 * 1024)
+    val store = storeManager.getStore(collectionA)
+    val value = ("some compressible value " * 100).getBytes
+    (0 until 1000).foreach(i => store.put(s"key$i", 0, value))
+    // compaction writes the bottommost level, which uses zstd
+    storeManager.compactAllData()
+    assert(store.withRawRocksIterator(it => store.get(it, "key500", None)).map(_.value.toSeq).contains(value.toSeq))
+    storeManager.close
+
+    val options = new DBOptions()
+    val cfListRef: mutable.Buffer[ColumnFamilyDescriptor] = mutable.Buffer()
+    org.rocksdb.OptionsUtil.loadLatestOptions(new ConfigOptions(), dataDir.toString, options, cfListRef.asJava)
+    val cfOptions = cfListRef.find(cf => new String(cf.getName) == collectionA).get.getOptions
+    assert(cfOptions.compressionType() == CompressionType.LZ4_COMPRESSION)
+    assert(cfOptions.bottommostCompressionType() == CompressionType.ZSTD_COMPRESSION)
+    assert(cfOptions.targetFileSizeBase() == 256L * 1024 * 1024)
+    val optionsFileContent = new String(Files.readAllBytes(Files.list(dataDir).iterator().asScala.filter(_.getFileName.toString.startsWith("OPTIONS-")).max))
+    assert(optionsFileContent.contains("cache_index_and_filter_blocks=true"))
+    assert(optionsFileContent.contains("pin_l0_filter_and_index_blocks_in_cache=true"))
   }
 
   it should "fail if specified config file does not exist" in {

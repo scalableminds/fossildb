@@ -1,6 +1,9 @@
 # Changelog
 
 ## Added
+ - New `--blockCacheSize` option (in MB, default 512) for a block cache shared by all column families. Index and filter blocks are now kept in this cache.
+ - New SST files use lz4 compression, and zstd for the bottommost level. Target SST file size reduced from 1GB to 256MB. Existing files are converted gradually by compactions.
+ - Reads now use iterator upper bounds, which makes lookups next to deleted ranges much faster.
  - New API endpoints `DeleteAllByPrefix` and `PutMultipleVersions`. [#47](https://github.com/scalableminds/fossildb/pull/47)
  - New API endpoints `GetMultipleKeysByListWithMultipleVersions` and `PutMultipleKeysWithMultipleVersions` for reading and writing multiple keys/versions in one request. [#48](https://github.com/scalableminds/fossildb/pull/48)
  - `ListKeys` now supports optional `prefix` field

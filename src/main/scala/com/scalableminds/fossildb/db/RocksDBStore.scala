@@ -15,15 +15,29 @@ case class BackupInfo(id: Int, timestamp: Long, size: Long)
 
 case class KeyValuePair[T](key: String, value: T)
 
-class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePathOpt: Option[String]) extends AutoCloseable with LazyLogging {
+class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePathOpt: Option[String],
+                     blockCacheSizeBytes: Long = RocksDBManager.defaultBlockCacheSizeBytes) extends AutoCloseable with LazyLogging {
 
   RocksDB.loadLibrary()
 
   // The native options objects must outlive the DB, they are released in close()
+  // One block cache shared by all column families that use the default options (i.e. not configured in an options file)
+  private val blockCache = new LRUCache(blockCacheSizeBytes)
+  private val tableConfig = new BlockBasedTableConfig()
+    .setBlockCache(blockCache)
+    // Keep index and filter blocks in the block cache too, so their memory is bounded by the cache size.
+    // Pinning the L0 ones avoids re-reading them for the newest (most frequently read) files.
+    .setCacheIndexAndFilterBlocks(true)
+    .setPinL0FilterAndIndexBlocksInCache(true)
   private val columnOptions = new ColumnFamilyOptions()
     .setArenaBlockSize(4L * 1024 * 1024) // 4MB
-    .setTargetFileSizeBase(1024L * 1024 * 1024) // 1GB
+    .setTargetFileSizeBase(256L * 1024 * 1024) // 256MB
     .setMaxBytesForLevelBase(10L * 1024 * 1024 * 1024) // 10GB
+    // The bottommost level holds most of the data (including old versions), so compress it well with zstd.
+    // Upper levels are rewritten frequently by compactions, so use the faster lz4 there.
+    .setCompressionType(CompressionType.LZ4_COMPRESSION)
+    .setBottommostCompressionType(CompressionType.ZSTD_COMPRESSION)
+    .setTableFormatConfig(tableConfig)
   private val options = new DBOptions()
   private val cfListRef: mutable.Buffer[ColumnFamilyDescriptor] = mutable.Buffer()
 
@@ -100,7 +114,7 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
   def exportToNewDB(newDataDir: Path, newOptionsFilePathOpt: Option[String]): Unit = {
     logger.info(s"Exporting to new DB at ${newDataDir.toString} with options file $newOptionsFilePathOpt")
     // Closing releases the lock on the new DB, so it can be opened by another FossilDB instance
-    Using.resource(new RocksDBManager(newDataDir, columnFamilies, newOptionsFilePathOpt)) { newManager =>
+    Using.resource(new RocksDBManager(newDataDir, columnFamilies, newOptionsFilePathOpt, blockCacheSizeBytes)) { newManager =>
       newManager.columnFamilyHandles.foreach { case (name, handle) =>
         val store = getStoreForColumnFamily(name).get
         store.withRawRocksIterator { rocksIt =>
@@ -124,7 +138,12 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
   private def closeOptions(): Unit = {
     (cfListRef.map(_.getOptions) :+ columnOptions).distinct.foreach(_.close())
     options.close()
+    blockCache.close()
   }
+}
+
+object RocksDBManager {
+  val defaultBlockCacheSizeBytes: Long = 512L * 1024 * 1024 // 512MB
 }
 
 class RocksDBKeyIterator(it: RocksIterator, prefix: Option[String]) extends Iterator[String] with LazyLogging {
@@ -161,14 +180,16 @@ class RocksDBIterator(it: RocksIterator, prefix: Option[String]) extends Iterato
 
 class RocksDBStore(db: RocksDB, handle: ColumnFamilyHandle) extends LazyLogging {
 
-  def withRawRocksIterator[T](block: RocksIterator => T): T = {
-    val rocksIt = db.newIterator(handle)
-    try {
-      block(rocksIt)
-    } finally {
-      rocksIt.close()
-    }
-  }
+  def withRawRocksIterator[T](block: RocksIterator => T): T = withBoundedRocksIterator(None)(block)
+
+  // With an upper bound (exclusive), the iterator becomes invalid at the bound instead of reading on into
+  // the following keys, which is much cheaper when deletion tombstones follow the range of interest.
+  def withBoundedRocksIterator[T](upperBound: Option[Array[Byte]])(block: RocksIterator => T): T =
+    Using.Manager { use =>
+      val readOptions = use(new ReadOptions())
+      upperBound.foreach(bound => readOptions.setIterateUpperBound(use(new Slice(bound))))
+      block(use(db.newIterator(handle, readOptions)))
+    }.get
 
   def get(key: String): Array[Byte] = {
     db.get(handle, RocksDBStore.encodeKey(key))
@@ -193,6 +214,17 @@ object RocksDBStore {
 
   def startsWith(key: Array[Byte], prefix: Array[Byte]): Boolean =
     key.length >= prefix.length && util.Arrays.equals(key, 0, prefix.length, prefix, 0, prefix.length)
+
+  // The smallest byte string greater than every key starting with prefix, None if there is none (empty or all 0xFF)
+  def prefixUpperBound(prefix: Array[Byte]): Option[Array[Byte]] = {
+    val lastIncrementableIndex = prefix.lastIndexWhere(_ != 0xFF.toByte)
+    if (lastIncrementableIndex < 0) None
+    else {
+      val bound = prefix.take(lastIncrementableIndex + 1)
+      bound(lastIncrementableIndex) = (bound(lastIncrementableIndex) + 1).toByte
+      Some(bound)
+    }
+  }
 
   def scan(rocksIt: RocksIterator, key: String, prefix: Option[String]): RocksDBIterator = {
     rocksIt.seek(encodeKey(key))
