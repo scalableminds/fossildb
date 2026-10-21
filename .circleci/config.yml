@@ -12,6 +12,11 @@ jobs:
       - checkout
 
       - run:
+          name: Set docker tag
+          # Branch names may contain characters like '/' that are invalid in docker tags
+          command: echo "export DOCKER_TAG=$(echo "$CIRCLE_BRANCH" | sed 's/[^A-Za-z0-9._-]/-/g')" >> $BASH_ENV
+
+      - run:
           name: Build server
           command: docker-compose run -T -e CI=$CI sbt sbt assembly
 
@@ -23,26 +28,26 @@ jobs:
           name: Build server docker image
           command: |
             docker build \
-            -t scalableminds/fossildb:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} \
-            -t scalableminds/fossildb:${CIRCLE_BRANCH} \
+            -t scalableminds/fossildb:${DOCKER_TAG}__${CIRCLE_BUILD_NUM} \
+            -t scalableminds/fossildb:${DOCKER_TAG} \
             .
       - run:
           name: Build client docker image
           command: |
             docker build \
             -f client/Dockerfile \
-            -t scalableminds/fossildb-client:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} \
-            -t scalableminds/fossildb-client:${CIRCLE_BRANCH} \
+            -t scalableminds/fossildb-client:${DOCKER_TAG}__${CIRCLE_BUILD_NUM} \
+            -t scalableminds/fossildb-client:${DOCKER_TAG} \
             .
 
       - run:
           name: Smoke test
           command: |
-            FOSSILDB_TAG=${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} \
+            FOSSILDB_TAG=${DOCKER_TAG}__${CIRCLE_BUILD_NUM} \
             docker-compose up -d fossildb
             sleep 1
-            FOSSILDB_TAG=${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} \
-            FOSSILDB_CLIENT_TAG=${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} \
+            FOSSILDB_TAG=${DOCKER_TAG}__${CIRCLE_BUILD_NUM} \
+            FOSSILDB_CLIENT_TAG=${DOCKER_TAG}__${CIRCLE_BUILD_NUM} \
             docker-compose run fossildb-health-check
             docker-compose down
 
@@ -50,15 +55,15 @@ jobs:
           name: Push to Dockerhub
           command: |
             echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
-            docker push scalableminds/fossildb:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM}
-            docker push scalableminds/fossildb:${CIRCLE_BRANCH}
-            docker push scalableminds/fossildb-client:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM}
-            docker push scalableminds/fossildb-client:${CIRCLE_BRANCH}
+            docker push scalableminds/fossildb:${DOCKER_TAG}__${CIRCLE_BUILD_NUM}
+            docker push scalableminds/fossildb:${DOCKER_TAG}
+            docker push scalableminds/fossildb-client:${DOCKER_TAG}__${CIRCLE_BUILD_NUM}
+            docker push scalableminds/fossildb-client:${DOCKER_TAG}
             if [ "${CIRCLE_BRANCH}" == "master" ]; then
               VERSION=$(cat $TARGET_DIR/version)
-              docker tag scalableminds/fossildb:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} scalableminds/fossildb:${VERSION}
+              docker tag scalableminds/fossildb:${DOCKER_TAG}__${CIRCLE_BUILD_NUM} scalableminds/fossildb:${VERSION}
               docker push scalableminds/fossildb:${VERSION}
-              docker tag scalableminds/fossildb-client:${CIRCLE_BRANCH}__${CIRCLE_BUILD_NUM} scalableminds/fossildb-client:${VERSION}
+              docker tag scalableminds/fossildb-client:${DOCKER_TAG}__${CIRCLE_BUILD_NUM} scalableminds/fossildb-client:${VERSION}
               docker push scalableminds/fossildb-client:${VERSION}
             fi
             docker logout

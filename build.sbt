@@ -10,7 +10,8 @@ def getVersionFromGit: String = {
     val oldVersion = run("git describe --tags --abbrev=0").split('.').toList.map(_.toInt)
     (oldVersion.init :+ (oldVersion.last + 1)).mkString(".")
   } else {
-    "DEV-" + getBranch
+    // Branch names may contain characters like '/' that are invalid in versions (rejected by coursier)
+    "DEV-" + getBranch.replaceAll("[^A-Za-z0-9._-]", "-")
   }
 }
 
