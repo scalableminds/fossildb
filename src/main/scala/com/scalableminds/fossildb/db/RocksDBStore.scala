@@ -158,14 +158,16 @@ class RocksDBIterator(it: RocksIterator, prefix: Option[String]) extends Iterato
 
 class RocksDBStore(db: RocksDB, handle: ColumnFamilyHandle) extends LazyLogging {
 
-  def withRawRocksIterator[T](block: RocksIterator => T): T = {
-    val rocksIt = db.newIterator(handle)
-    try {
-      block(rocksIt)
-    } finally {
-      rocksIt.close()
-    }
-  }
+  def withRawRocksIterator[T](block: RocksIterator => T): T = withBoundedRocksIterator(None)(block)
+
+  // With an upper bound (exclusive), the iterator becomes invalid at the bound instead of reading on into
+  // the following keys, which is much cheaper when deletion tombstones follow the range of interest.
+  def withBoundedRocksIterator[T](upperBound: Option[Array[Byte]])(block: RocksIterator => T): T =
+    Using.Manager { use =>
+      val readOptions = use(new ReadOptions())
+      upperBound.foreach(bound => readOptions.setIterateUpperBound(use(new Slice(bound))))
+      block(use(db.newIterator(handle, readOptions)))
+    }.get
 
   def get(key: String): Array[Byte] = {
     db.get(handle, RocksDBStore.encodeKey(key))
@@ -190,6 +192,17 @@ object RocksDBStore {
 
   def startsWith(key: Array[Byte], prefix: Array[Byte]): Boolean =
     key.length >= prefix.length && util.Arrays.equals(key, 0, prefix.length, prefix, 0, prefix.length)
+
+  // The smallest byte string greater than every key starting with prefix, None if there is none (empty or all 0xFF)
+  def prefixUpperBound(prefix: Array[Byte]): Option[Array[Byte]] = {
+    val lastIncrementableIndex = prefix.lastIndexWhere(_ != 0xFF.toByte)
+    if (lastIncrementableIndex < 0) None
+    else {
+      val bound = prefix.take(lastIncrementableIndex + 1)
+      bound(lastIncrementableIndex) = (bound(lastIncrementableIndex) + 1).toByte
+      Some(bound)
+    }
+  }
 
   def scan(rocksIt: RocksIterator, key: String, prefix: Option[String]): RocksDBIterator = {
     rocksIt.seek(encodeKey(key))
