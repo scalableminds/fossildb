@@ -7,28 +7,32 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path}
 import java.util
 import scala.collection.mutable
-import scala.concurrent.Future
 import scala.jdk.CollectionConverters.{BufferHasAsJava, ListHasAsScala, SeqHasAsJava}
 import scala.language.postfixOps
+import scala.util.Using
 
 case class BackupInfo(id: Int, timestamp: Long, size: Long)
 
 case class KeyValuePair[T](key: String, value: T)
 
-class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePathOpt: Option[String]) extends LazyLogging {
+class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePathOpt: Option[String]) extends AutoCloseable with LazyLogging {
 
-  private val (db: RocksDB, columnFamilyHandles) = {
-    RocksDB.loadLibrary()
-    val columnOptions = new ColumnFamilyOptions()
-      .setArenaBlockSize(4L * 1024 * 1024) // 4MB
-      .setTargetFileSizeBase(1024L * 1024 * 1024) // 1GB
-      .setMaxBytesForLevelBase(10L * 1024 * 1024 * 1024) // 10GB
-    val options = new DBOptions()
-    val cfListRef: mutable.Buffer[ColumnFamilyDescriptor] = mutable.Buffer()
+  RocksDB.loadLibrary()
+
+  // The native options objects must outlive the DB, they are released in close()
+  private val columnOptions = new ColumnFamilyOptions()
+    .setArenaBlockSize(4L * 1024 * 1024) // 4MB
+    .setTargetFileSizeBase(1024L * 1024 * 1024) // 1GB
+    .setMaxBytesForLevelBase(10L * 1024 * 1024 * 1024) // 10GB
+  private val options = new DBOptions()
+  private val cfListRef: mutable.Buffer[ColumnFamilyDescriptor] = mutable.Buffer()
+
+  private val (db: RocksDB, columnFamilyHandles) = try {
     optionsFilePathOpt.foreach { optionsFilePath =>
       try {
-        val configOptions = new ConfigOptions()
-        org.rocksdb.OptionsUtil.loadOptionsFromFile(configOptions, optionsFilePath, options, cfListRef.asJava)
+        Using.resource(new ConfigOptions()) { configOptions =>
+          org.rocksdb.OptionsUtil.loadOptionsFromFile(configOptions, optionsFilePath, options, cfListRef.asJava)
+        }
         logger.info("successfully loaded rocksdb options from " + optionsFilePath)
       } catch {
         case e: Exception =>
@@ -47,6 +51,11 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
       columnFamilyDescriptors.asJava,
       columnFamilyHandles)
     (db, columnFamilies.zip(columnFamilyHandles.asScala).toMap)
+  } catch {
+    case e: Throwable =>
+      // close() is unreachable if the constructor fails, so release the options here
+      closeOptions()
+      throw e
   }
 
   def getStoreForColumnFamily(columnFamily: String): Option[RocksDBStore] = {
@@ -57,48 +66,61 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     if (!Files.exists(backupDir) || !Files.isDirectory(backupDir))
       Files.createDirectories(backupDir)
 
-    RocksDB.loadLibrary()
-    val backupEngine = BackupEngine.open(Env.getDefault, new BackupEngineOptions(backupDir.toString))
-    backupEngine.createNewBackup(db)
-    backupEngine.purgeOldBackups(1)
-    backupEngine.getBackupInfo.asScala.headOption.map(info => BackupInfo(info.backupId, info.timestamp, info.size))
+    withBackupEngine(backupDir) { backupEngine =>
+      backupEngine.createNewBackup(db)
+      backupEngine.purgeOldBackups(1)
+      backupEngine.getBackupInfo.asScala.headOption.map(info => BackupInfo(info.backupId, info.timestamp, info.size))
+    }
   }
 
   def restoreFromBackup(backupDir: Path): Unit = {
     logger.info("Restoring from backup. RocksDB temporarily unavailable")
     close()
-    RocksDB.loadLibrary()
-    val backupEngine = BackupEngine.open(Env.getDefault, new BackupEngineOptions(backupDir.toString))
-    backupEngine.restoreDbFromLatestBackup(dataDir.toString, dataDir.toString, new RestoreOptions(true))
+    withBackupEngine(backupDir) { backupEngine =>
+      Using.resource(new RestoreOptions(true)) { restoreOptions =>
+        backupEngine.restoreDbFromLatestBackup(dataDir.toString, dataDir.toString, restoreOptions)
+      }
+    }
     logger.info("Restoring from backup complete. Reopening RocksDB")
   }
 
+  private def withBackupEngine[T](backupDir: Path)(block: BackupEngine => T): T =
+    Using.resource(new BackupEngineOptions(backupDir.toString)) { backupEngineOptions =>
+      Using.resource(BackupEngine.open(Env.getDefault, backupEngineOptions))(block)
+    }
+
   def compactAllData(): Unit = {
     logger.info("Compacting all data")
-    RocksDB.loadLibrary()
     db.compactRange()
     logger.info("All data has been compacted to last level containing data")
   }
 
   def exportToNewDB(newDataDir: Path, newOptionsFilePathOpt: Option[String]): Unit = {
-    RocksDB.loadLibrary()
     logger.info(s"Exporting to new DB at ${newDataDir.toString} with options file $newOptionsFilePathOpt")
-    val newManager = new RocksDBManager(newDataDir, columnFamilies, newOptionsFilePathOpt)
-    newManager.columnFamilyHandles.foreach { case (name, handle) =>
-      val store = getStoreForColumnFamily(name).get
-      store.withRawRocksIterator { rocksIt =>
-        val dataIterator = RocksDBStore.scan(rocksIt, "", None)
-        dataIterator.foreach(el => newManager.db.put(handle, RocksDBStore.encodeKey(el.key), el.value))
+    Using.resource(new RocksDBManager(newDataDir, columnFamilies, newOptionsFilePathOpt)) { newManager =>
+      newManager.columnFamilyHandles.foreach { case (name, handle) =>
+        val store = getStoreForColumnFamily(name).get
+        store.withRawRocksIterator { rocksIt =>
+          val dataIterator = RocksDBStore.scan(rocksIt, "", None)
+          dataIterator.foreach(el => newManager.db.put(handle, RocksDBStore.encodeKey(el.key), el.value))
+        }
       }
+      logger.info("Writing data completed. Start compaction")
+      newManager.db.compactRange()
+      logger.info("Compaction finished")
     }
-    logger.info("Writing data completed. Start compaction")
-    newManager.db.compactRange()
-    logger.info("Compaction finished")
   }
 
-  def close(): Future[Unit] = {
+  override def close(): Unit = {
     logger.info("Closing RocksDB handle")
-    Future.successful(db.close())
+    // Closing is idempotent, so this is safe to call again, e.g. after restoreFromBackup
+    db.close()
+    closeOptions()
+  }
+
+  private def closeOptions(): Unit = {
+    (cfListRef.map(_.getOptions) :+ columnOptions).distinct.foreach(_.close())
+    options.close()
   }
 }
 
