@@ -545,13 +545,16 @@ class FossilDBSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHelpers
 
     // fails with a lock error if the export did not close the new DB
     val exportedStoreManager = new StoreManager(exportDir, backupDir, List(collectionA, collectionB), None)
-    def read(collection: String, key: String) = {
-      val store = exportedStoreManager.getStore(collection)
-      store.withRawRocksIterator(it => store.get(it, key, None)).map(pair => (pair.version, ByteString.copyFrom(pair.value)))
+    try {
+      def read(collection: String, key: String) = {
+        val store = exportedStoreManager.getStore(collection)
+        store.withRawRocksIterator(it => store.get(it, key, None)).map(pair => (pair.version, ByteString.copyFrom(pair.value)))
+      }
+      assert(read(collectionA, aKey).contains((0L, testData1)))
+      assert(read(collectionB, aNotherKey).contains((1L, testData2)))
+    } finally {
+      exportedStoreManager.close
     }
-    assert(read(collectionA, aKey).contains((0L, testData1)))
-    assert(read(collectionB, aNotherKey).contains((1L, testData2)))
-    exportedStoreManager.close
   }
 
   "ListVersions" should "list all versions" in {
