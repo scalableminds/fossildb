@@ -1,6 +1,7 @@
 # Changelog
 
 ## Added
+ - New SST files use lz4 compression, and zstd for the bottommost level. Existing files are converted gradually by compactions.
  - New API endpoints `DeleteAllByPrefix` and `PutMultipleVersions`. [#47](https://github.com/scalableminds/fossildb/pull/47)
  - New API endpoints `GetMultipleKeysByListWithMultipleVersions` and `PutMultipleKeysWithMultipleVersions` for reading and writing multiple keys/versions in one request. [#48](https://github.com/scalableminds/fossildb/pull/48)
  - `ListKeys` now supports optional `prefix` field

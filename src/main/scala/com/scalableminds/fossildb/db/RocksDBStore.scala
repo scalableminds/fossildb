@@ -24,6 +24,10 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     .setArenaBlockSize(4L * 1024 * 1024) // 4MB
     .setTargetFileSizeBase(1024L * 1024 * 1024) // 1GB
     .setMaxBytesForLevelBase(10L * 1024 * 1024 * 1024) // 10GB
+    // The bottommost level holds most of the data (including old versions), so compress it well with zstd.
+    // Upper levels are rewritten frequently by compactions, so use the faster lz4 there.
+    .setCompressionType(CompressionType.LZ4_COMPRESSION)
+    .setBottommostCompressionType(CompressionType.ZSTD_COMPRESSION)
   private val options = new DBOptions()
   private val cfListRef: mutable.Buffer[ColumnFamilyDescriptor] = mutable.Buffer()
 
