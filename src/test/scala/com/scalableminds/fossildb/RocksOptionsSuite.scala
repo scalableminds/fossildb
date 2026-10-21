@@ -50,6 +50,16 @@ class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHel
     storeManager.close
   }
 
+  it should "use a target SST file size of 256MB without a config file" in {
+    new StoreManager(dataDir, backupDir, columnFamilies, None).close
+
+    val options = new DBOptions()
+    val cfListRef: mutable.Buffer[ColumnFamilyDescriptor] = mutable.Buffer()
+    org.rocksdb.OptionsUtil.loadLatestOptions(new ConfigOptions(), dataDir.toString, options, cfListRef.asJava)
+    val cfOptions = cfListRef.find(cf => new String(cf.getName) == collectionA).get.getOptions
+    assert(cfOptions.targetFileSizeBase() == 256L * 1024 * 1024)
+  }
+
   it should "fail if specified config file does not exist" in {
     assertThrows[Exception] {
       new StoreManager(dataDir, backupDir, columnFamilies, Some("nonExistingPath.ini"))

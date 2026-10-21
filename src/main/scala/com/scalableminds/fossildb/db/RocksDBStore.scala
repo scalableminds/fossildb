@@ -22,7 +22,8 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
   // The native options objects must outlive the DB, they are released in close()
   private val columnOptions = new ColumnFamilyOptions()
     .setArenaBlockSize(4L * 1024 * 1024) // 4MB
-    .setTargetFileSizeBase(1024L * 1024 * 1024) // 1GB
+    // Compactions rewrite whole files, so smaller files make them finer-grained and less bursty
+    .setTargetFileSizeBase(256L * 1024 * 1024) // 256MB
     .setMaxBytesForLevelBase(10L * 1024 * 1024 * 1024) // 10GB
   private val options = new DBOptions()
   private val cfListRef: mutable.Buffer[ColumnFamilyDescriptor] = mutable.Buffer()

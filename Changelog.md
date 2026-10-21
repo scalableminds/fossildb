@@ -1,6 +1,7 @@
 # Changelog
 
 ## Added
+ - Target SST file size reduced from 1GB to 256MB, for smaller and less bursty compactions. Existing files are split up gradually by compactions.
  - New API endpoints `DeleteAllByPrefix` and `PutMultipleVersions`. [#47](https://github.com/scalableminds/fossildb/pull/47)
  - New API endpoints `GetMultipleKeysByListWithMultipleVersions` and `PutMultipleKeysWithMultipleVersions` for reading and writing multiple keys/versions in one request. [#48](https://github.com/scalableminds/fossildb/pull/48)
  - `ListKeys` now supports optional `prefix` field
