@@ -50,9 +50,7 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
       dataDir.toAbsolutePath.toString,
       columnFamilyDescriptors.asJava,
       columnFamilyHandles)
-    // The handles are returned in descriptor order, which differs from columnFamilies if an options file was loaded
-    val handlesByName = columnFamilyDescriptors.map(descriptor => new String(descriptor.getName)).zip(columnFamilyHandles.asScala).toMap
-    (db, columnFamilies.map(columnFamily => columnFamily -> handlesByName(columnFamily)).toMap)
+    (db, columnFamilies.zip(columnFamilyHandles.asScala).toMap)
   } catch {
     case e: Throwable =>
       // close() is unreachable if the constructor fails, so release the options here

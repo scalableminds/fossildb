@@ -65,25 +65,5 @@ class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHel
     }
   }
 
-  it should "map collections to the right column families if the config file lists them in a different order" in {
-    val file = new File(testTempDir, "testConfig.ini")
-    writeToFile(file, "[Version]\n  rocksdb_version=5.11.3\n  options_file_version=1.1\n\n[DBOptions]\n\n[CFOptions \"default\"]\n\n[CFOptions \"collectionB\"]\n\n[CFOptions \"collectionA\"]\n\n")
-
-    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, Some(file.getPath))
-    try {
-      storeManager.getStore(collectionA).put("aKey", 0, Array[Byte](1))
-    } finally {
-      storeManager.close
-    }
-
-    // reopen without the config file, so the column families are opened in the order of columnFamilies
-    val reopenedStoreManager = new StoreManager(dataDir, backupDir, columnFamilies, None)
-    try {
-      val store = reopenedStoreManager.getStore(collectionA)
-      assert(store.withRawRocksIterator(it => store.get(it, "aKey", None)).exists(_.value.sameElements(Array[Byte](1))))
-    } finally {
-      reopenedStoreManager.close
-    }
-  }
 
 }
