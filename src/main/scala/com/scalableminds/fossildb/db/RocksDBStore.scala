@@ -97,7 +97,6 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
 
   def exportToNewDB(newDataDir: Path, newOptionsFilePathOpt: Option[String]): Unit = {
     logger.info(s"Exporting to new DB at ${newDataDir.toString} with options file $newOptionsFilePathOpt")
-    // Closing releases the lock on the new DB, so it can be opened by another FossilDB instance
     Using.resource(new RocksDBManager(newDataDir, columnFamilies, newOptionsFilePathOpt)) { newManager =>
       newManager.columnFamilyHandles.foreach { case (name, handle) =>
         val store = getStoreForColumnFamily(name).get
