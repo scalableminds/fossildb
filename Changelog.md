@@ -13,6 +13,7 @@
 
 ## Fixes
 
+ - Fixed `CompactAllData` and `ExportDB` not compacting any data. They only compacted the (empty) default column family. Now they compact all column families, including their bottommost level.
  - Fixed native resource leaks: `ExportDB` now closes the exported DB (releasing its lock), and backup engines, RocksDB options and other native handles are released.
  - Fixed keys with non-ASCII characters being returned garbled and not matching `get` lookups or `prefix` filters. Keys are now always encoded as UTF-8.
  - Fixed `GetMultipleKeys` becoming extremely slow (and eventually overflowing the stack) on collections with many keys.

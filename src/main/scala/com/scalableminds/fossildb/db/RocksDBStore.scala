@@ -91,9 +91,17 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
 
   def compactAllData(): Unit = {
     logger.info("Compacting all data")
-    db.compactRange()
+    compactAllColumnFamilies()
     logger.info("All data has been compacted to last level containing data")
   }
+
+  private def compactAllColumnFamilies(): Unit =
+    // A manual compaction skips the bottommost level by default. Forcing it rewrites all files with the
+    // current options (e.g. compression), and drops deleted and overwritten entries there.
+    Using.resource(new CompactRangeOptions().setBottommostLevelCompaction(CompactRangeOptions.BottommostLevelCompaction.kForceOptimized)) { compactRangeOptions =>
+      // compactRange() without a handle would only compact the default column family, which holds no data
+      columnFamilyHandles.values.foreach(handle => db.compactRange(handle, null, null, compactRangeOptions))
+    }
 
   def exportToNewDB(newDataDir: Path, newOptionsFilePathOpt: Option[String]): Unit = {
     logger.info(s"Exporting to new DB at ${newDataDir.toString} with options file $newOptionsFilePathOpt")
@@ -106,7 +114,7 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
         }
       }
       logger.info("Writing data completed. Start compaction")
-      newManager.db.compactRange()
+      newManager.compactAllColumnFamilies()
       logger.info("Compaction finished")
     }
   }
