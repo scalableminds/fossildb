@@ -2,16 +2,16 @@ package com.scalableminds.fossildb
 
 import java.nio.file.Paths
 
-import com.scalableminds.fossildb.db.StoreManager
+import com.scalableminds.fossildb.db.{RocksDBManager, StoreManager}
 import com.typesafe.scalalogging.LazyLogging
 import fossildb.BuildInfo
 
 import scala.concurrent.ExecutionContext
 
-object ConfigDefaults {val port: Int = 7155; val dataDir: String = "data"; val backupDir: String = "backup"; val columnFamilies: List[String] = List(); val rocksOptionsFile: Option[String] = None}
+object ConfigDefaults {val port: Int = 7155; val dataDir: String = "data"; val backupDir: String = "backup"; val columnFamilies: List[String] = List(); val rocksOptionsFile: Option[String] = None; val blockCacheSizeMB: Long = RocksDBManager.defaultBlockCacheSizeBytes / 1024 / 1024}
 case class Config(port: Int = ConfigDefaults.port, dataDir: String = ConfigDefaults.dataDir,
                   backupDir: String = ConfigDefaults.backupDir, columnFamilies: List[String] = ConfigDefaults.columnFamilies,
-                  rocksOptionsFile: Option[String] = ConfigDefaults.rocksOptionsFile)
+                  rocksOptionsFile: Option[String] = ConfigDefaults.rocksOptionsFile, blockCacheSizeMB: Long = ConfigDefaults.blockCacheSizeMB)
 
 object FossilDB extends LazyLogging {
   def main(args: Array[String]): Unit = {
@@ -25,7 +25,7 @@ object FossilDB extends LazyLogging {
           logger.info("BuildInfo: (" + BuildInfo + ")")
           logger.info("Config: " + config)
 
-          val storeManager = new StoreManager(Paths.get(config.dataDir), Paths.get(config.backupDir), config.columnFamilies, config.rocksOptionsFile)
+          val storeManager = new StoreManager(Paths.get(config.dataDir), Paths.get(config.backupDir), config.columnFamilies, config.rocksOptionsFile, config.blockCacheSizeMB * 1024 * 1024)
 
           val server = new FossilDBServer(storeManager, config.port, ExecutionContext.global)
 
@@ -53,6 +53,9 @@ object FossilDB extends LazyLogging {
 
       opt[String]('r', "rocksOptionsFile").valueName("<filepath>").action( (x, c) =>
         c.copy(rocksOptionsFile = Some(x)) ).text("rocksdb options file. Default: " + ConfigDefaults.rocksOptionsFile)
+
+      opt[Long]("blockCacheSize").valueName("<MB>").validate(x => if (x > 0) success else failure("blockCacheSize must be positive")).action( (x, c) =>
+        c.copy(blockCacheSizeMB = x) ).text("size of the block cache shared by all column families, in MB. Default: " + ConfigDefaults.blockCacheSizeMB)
     }
 
     parser.parse(args, Config())

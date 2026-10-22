@@ -21,6 +21,9 @@ For further options, see `help`:
   -b, --backupDir <path>   backup directory. Default: backup
   -c, --columnFamilies <cf1>,<cf2>...
                            column families of the database (created if there is no db yet)
+  -r, --rocksOptionsFile <filepath>
+                           rocksdb options file. Default: None
+  --blockCacheSize <MB>    size of the block cache shared by all column families, in MB. Default: 512
 ```
 
 ## API

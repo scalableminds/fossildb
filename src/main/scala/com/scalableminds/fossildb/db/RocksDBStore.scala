@@ -15,15 +15,25 @@ case class BackupInfo(id: Int, timestamp: Long, size: Long)
 
 case class KeyValuePair[T](key: String, value: T)
 
-class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePathOpt: Option[String]) extends AutoCloseable with LazyLogging {
+class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePathOpt: Option[String],
+                     blockCacheSizeBytes: Long = RocksDBManager.defaultBlockCacheSizeBytes) extends AutoCloseable with LazyLogging {
 
   RocksDB.loadLibrary()
 
   // The native options objects must outlive the DB, they are released in close()
+  // One block cache shared by all column families that use the default options (i.e. not configured in an options file)
+  private val blockCache = new LRUCache(blockCacheSizeBytes)
+  private val tableConfig = new BlockBasedTableConfig()
+    .setBlockCache(blockCache)
+    // Keep index and filter blocks in the block cache too, so their memory is bounded by the cache size.
+    // Pinning the L0 ones avoids re-reading them for the newest (most frequently read) files.
+    .setCacheIndexAndFilterBlocks(true)
+    .setPinL0FilterAndIndexBlocksInCache(true)
   private val columnOptions = new ColumnFamilyOptions()
     .setArenaBlockSize(4L * 1024 * 1024) // 4MB
     .setTargetFileSizeBase(1024L * 1024 * 1024) // 1GB
     .setMaxBytesForLevelBase(10L * 1024 * 1024 * 1024) // 10GB
+    .setTableFormatConfig(tableConfig)
   private val options = new DBOptions()
   private val cfListRef: mutable.Buffer[ColumnFamilyDescriptor] = mutable.Buffer()
 
@@ -97,7 +107,7 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
 
   def exportToNewDB(newDataDir: Path, newOptionsFilePathOpt: Option[String]): Unit = {
     logger.info(s"Exporting to new DB at ${newDataDir.toString} with options file $newOptionsFilePathOpt")
-    Using.resource(new RocksDBManager(newDataDir, columnFamilies, newOptionsFilePathOpt)) { newManager =>
+    Using.resource(new RocksDBManager(newDataDir, columnFamilies, newOptionsFilePathOpt, blockCacheSizeBytes)) { newManager =>
       newManager.columnFamilyHandles.foreach { case (name, handle) =>
         val store = getStoreForColumnFamily(name).get
         store.withRawRocksIterator { rocksIt =>
@@ -121,7 +131,12 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
   private def closeOptions(): Unit = {
     (cfListRef.map(_.getOptions) :+ columnOptions).distinct.foreach(_.close())
     options.close()
+    blockCache.close()
   }
+}
+
+object RocksDBManager {
+  val defaultBlockCacheSizeBytes: Long = 512L * 1024 * 1024 // 512MB
 }
 
 class RocksDBKeyIterator(it: RocksIterator, prefix: Option[String]) extends Iterator[String] with LazyLogging {
