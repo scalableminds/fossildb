@@ -5,8 +5,6 @@ jobs:
       image: ubuntu-2404:2026.05.1
     environment:
       SBT_VERSION_TAG: master__7830403826
-      USER_UID: 1000
-      USER_GID: 1000
       TARGET_DIR: target/scala-2.13
     steps:
       - checkout
@@ -15,6 +13,13 @@ jobs:
           name: Set docker tag
           # Branch names may contain characters like '/' that are invalid in docker tags
           command: echo "export DOCKER_TAG=$(echo "$CIRCLE_BRANCH" | sed 's/[^A-Za-z0-9._-]/-/g')" >> $BASH_ENV
+
+      - run:
+          name: Set build user
+          # The sbt container must run as the owner of the checkout to write target/
+          command: |
+            echo "export USER_UID=$(id -u)" >> $BASH_ENV
+            echo "export USER_GID=$(id -g)" >> $BASH_ENV
 
       - run:
           name: Build server
