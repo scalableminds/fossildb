@@ -1,8 +1,8 @@
-version: 2
+version: 2.1
 jobs:
   build_and_push:
     machine:
-      image: ubuntu-2004:202111-02
+      image: ubuntu-2404:2026.05.1
     environment:
       SBT_VERSION_TAG: master__7830403826
       USER_UID: 1000
@@ -18,11 +18,11 @@ jobs:
 
       - run:
           name: Build server
-          command: docker-compose run -T -e CI=$CI sbt sbt assembly
+          command: docker compose run -T -e CI=$CI sbt sbt assembly
 
       - run:
           name: Get FossilDB version
-          command: docker-compose run -T sbt java -jar $TARGET_DIR/fossildb.jar --version > $TARGET_DIR/version
+          command: docker compose run -T sbt java -jar $TARGET_DIR/fossildb.jar --version > $TARGET_DIR/version
 
       - run:
           name: Build server docker image
@@ -44,12 +44,12 @@ jobs:
           name: Smoke test
           command: |
             FOSSILDB_TAG=${DOCKER_TAG}__${CIRCLE_BUILD_NUM} \
-            docker-compose up -d fossildb
+            docker compose up -d fossildb
             sleep 1
             FOSSILDB_TAG=${DOCKER_TAG}__${CIRCLE_BUILD_NUM} \
             FOSSILDB_CLIENT_TAG=${DOCKER_TAG}__${CIRCLE_BUILD_NUM} \
-            docker-compose run fossildb-health-check
-            docker-compose down
+            docker compose run fossildb-health-check
+            docker compose down
 
       - run:
           name: Push to Dockerhub
@@ -83,7 +83,6 @@ jobs:
             fi
 
 workflows:
-  version: 2
   circleci_build:
     jobs:
       - build_and_push:
