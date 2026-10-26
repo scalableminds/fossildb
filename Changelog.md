@@ -9,7 +9,8 @@
 ## Breaking Changes
 
  - The `GetMultipleKeys` call now takes a `startAfterKey` instead of a `key` for pagination. The returned list will only start *after* this key. [#38](https://github.com/scalableminds/fossildb/pull/38)
- - Now needs Java 11+
+ - Now needs Java 17+. [#71](https://github.com/scalableminds/fossildb/pull/71)
+ - Upgraded RocksDB from 9.4 to 11.8. Data and backups written by this version may not be readable by older FossilDB versions, so make a backup before upgrading if you might need to roll back. [#71](https://github.com/scalableminds/fossildb/pull/71)
 
 ## Fixes
 
