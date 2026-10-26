@@ -179,6 +179,27 @@ class RocksDBStore(db: RocksDB, handle: ColumnFamilyHandle) extends LazyLogging 
     db.delete(handle, RocksDBStore.encodeKey(key))
   }
 
+  // Collects writes and applies them atomically once the block completes. If the block throws, nothing is written.
+  // An empty batch is skipped, so requests that match nothing don't join a write group.
+  def withWriteBatch[T](block: RocksDBWriteBatch => T): T =
+    Using.resources(new WriteBatch(), new WriteOptions()) { (writeBatch, writeOptions) =>
+      val result = block(new RocksDBWriteBatch(writeBatch, handle))
+      if (writeBatch.count() > 0) db.write(writeOptions, writeBatch)
+      result
+    }
+
+}
+
+class RocksDBWriteBatch(writeBatch: WriteBatch, handle: ColumnFamilyHandle) {
+
+  def put(key: String, value: Array[Byte]): Unit = {
+    writeBatch.put(handle, RocksDBStore.encodeKey(key), value)
+  }
+
+  def delete(key: String): Unit = {
+    writeBatch.delete(handle, RocksDBStore.encodeKey(key))
+  }
+
 }
 
 object RocksDBStore {

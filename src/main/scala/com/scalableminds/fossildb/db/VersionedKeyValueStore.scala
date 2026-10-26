@@ -128,11 +128,15 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
     }
   }
 
-  private def scanVersionsOnly(rocksIt: RocksIterator, key: String, version: Option[Long] = None): Iterator[VersionedKey] = {
+  private def scanVersionsOnly(rocksIt: RocksIterator, key: String, version: Option[Long] = None): Iterator[VersionedKey] =
+    scanStoredVersionKeys(rocksIt, key, version).map(_._2)
+
+  // Yields each stored key together with its parsed form, so callers can address the stored key exactly as it is
+  private def scanStoredVersionKeys(rocksIt: RocksIterator, key: String, version: Option[Long] = None): Iterator[(String, VersionedKey)] = {
     requireValidKey(key)
     val prefix = s"$key${VersionedKey.versionSeparator}"
-    RocksDBStore.scanKeysOnly(rocksIt, version.map(VersionedKey(key, _).toString).getOrElse(prefix), Some(prefix)).flatMap { key =>
-      VersionedKey(key)
+    RocksDBStore.scanKeysOnly(rocksIt, version.map(VersionedKey(key, _).toString).getOrElse(prefix), Some(prefix)).flatMap { storedKey =>
+      VersionedKey(storedKey).map(storedKey -> _)
     }
   }
 
@@ -170,28 +174,31 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
   }
 
   def deleteMultipleVersions(rocksIt: RocksIterator, key: String, oldestVersion: Option[Long] = None, newestVersion: Option[Long] = None): Unit = {
-    @tailrec
-    def deleteIter(versionIterator: Iterator[VersionedKey]): Unit = {
-      if (versionIterator.hasNext) {
-        val item = versionIterator.next()
-        if (item.version >= oldestVersion.getOrElse(0L)) {
-          delete(item.key, item.version)
-          deleteIter(versionIterator)
-        }
-      }
+    // Versions are sorted newest first, so stop at the first one older than oldestVersion.
+    // Delete the stored keys as scanned instead of rebuilding them, so keys that don't round-trip are deleted too.
+    val storedKeysToDelete = scanStoredVersionKeys(rocksIt, key, newestVersion).takeWhile {
+      case (_, versionedKey) => versionedKey.version >= oldestVersion.getOrElse(0L)
     }
-
-    val versionsIterator = scanVersionsOnly(rocksIt, key, newestVersion)
-    deleteIter(versionsIterator)
+    underlying.withWriteBatch(batch => storedKeysToDelete.foreach { case (storedKey, _) => batch.delete(storedKey) })
   }
 
   def deleteAllByPrefix(rocksIt: RocksIterator, prefix: String): Unit = {
-    RocksDBStore.scanKeysOnly(rocksIt, prefix, Some(prefix)).foreach(underlying.delete)
+    underlying.withWriteBatch { batch =>
+      RocksDBStore.scanKeysOnly(rocksIt, prefix, Some(prefix)).foreach(batch.delete)
+    }
   }
 
   def put(key: String, version: Long, value: Array[Byte]): Unit = {
     requireValidKey(key)
     underlying.put(VersionedKey.asString(key, version), value)
+  }
+
+  // Writes all entries atomically: either all of them are stored, or none (e.g. if one key is invalid)
+  def putMultiple(entries: Seq[VersionedKeyValuePair[Array[Byte]]]): Unit = {
+    entries.foreach(entry => requireValidKey(entry.key))
+    underlying.withWriteBatch { batch =>
+      entries.foreach(entry => batch.put(entry.versionedKey.toString, entry.value))
+    }
   }
 
   def delete(key: String, version: Long): Unit = {
