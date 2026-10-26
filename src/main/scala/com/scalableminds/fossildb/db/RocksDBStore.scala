@@ -33,6 +33,9 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
         Using.resource(new ConfigOptions()) { configOptions =>
           org.rocksdb.OptionsUtil.loadOptionsFromFile(configOptions, optionsFilePath, options, cfListRef.asJava)
         }
+        // Version ordering, prefix scans and iterator upper bounds all rely on bytewise key order.
+        // Opening a DB that was created with a different comparator fails instead of silently returning wrong results.
+        cfListRef.foreach(_.getOptions.setComparator(BuiltinComparator.BYTEWISE_COMPARATOR))
         logger.info("successfully loaded rocksdb options from " + optionsFilePath)
       } catch {
         case e: Exception =>
@@ -158,14 +161,11 @@ class RocksDBIterator(it: RocksIterator, prefix: Option[String]) extends Iterato
 
 class RocksDBStore(db: RocksDB, handle: ColumnFamilyHandle) extends LazyLogging {
 
-  def withRawRocksIterator[T](block: RocksIterator => T): T = {
-    val rocksIt = db.newIterator(handle)
-    try {
-      block(rocksIt)
-    } finally {
-      rocksIt.close()
-    }
-  }
+  def withRawRocksIterator[T](block: RocksIterator => T): T = withIterators(_.withIterator(None)(block))
+
+  // The iterators share one ReadOptions, so a request reading many keys only allocates it once
+  def withIterators[T](block: BoundedIterators => T): T =
+    Using.resource(new ReadOptions())(readOptions => block(new BoundedIterators(db, handle, readOptions)))
 
   def get(key: String): Array[Byte] = {
     db.get(handle, RocksDBStore.encodeKey(key))
@@ -181,6 +181,20 @@ class RocksDBStore(db: RocksDB, handle: ColumnFamilyHandle) extends LazyLogging 
 
 }
 
+class BoundedIterators(db: RocksDB, handle: ColumnFamilyHandle, readOptions: ReadOptions) {
+
+  // With an upper bound (exclusive), the iterator becomes invalid at the bound instead of reading on into
+  // the following keys, which is much cheaper when deletion tombstones follow the range of interest.
+  // The iterator keeps a pointer to the bound, so the bound is closed after the iterator.
+  def withIterator[T](upperBound: Option[Array[Byte]])(block: RocksIterator => T): T =
+    Using.Manager { use =>
+      val upperBoundSlice = upperBound.map(bound => use(new Slice(bound)))
+      readOptions.setIterateUpperBound(upperBoundSlice.orNull)
+      block(use(db.newIterator(handle, readOptions)))
+    }.get
+
+}
+
 object RocksDBStore {
 
   // Keys are always stored as UTF-8, independent of the platform's default charset
@@ -190,6 +204,17 @@ object RocksDBStore {
 
   def startsWith(key: Array[Byte], prefix: Array[Byte]): Boolean =
     key.length >= prefix.length && util.Arrays.equals(key, 0, prefix.length, prefix, 0, prefix.length)
+
+  // The smallest byte string greater than every key starting with prefix, None if there is none (empty or all 0xFF)
+  def prefixUpperBound(prefix: Array[Byte]): Option[Array[Byte]] = {
+    val lastIncrementableIndex = prefix.lastIndexWhere(_ != 0xFF.toByte)
+    if (lastIncrementableIndex < 0) None
+    else {
+      val bound = prefix.take(lastIncrementableIndex + 1)
+      bound(lastIncrementableIndex) = (bound(lastIncrementableIndex) + 1).toByte
+      Some(bound)
+    }
+  }
 
   def scan(rocksIt: RocksIterator, key: String, prefix: Option[String]): RocksDBIterator = {
     rocksIt.seek(encodeKey(key))

@@ -3,7 +3,7 @@ package com.scalableminds.fossildb
 import java.io.File
 import java.nio.file.Paths
 import com.google.protobuf.ByteString
-import com.scalableminds.fossildb.db.StoreManager
+import com.scalableminds.fossildb.db.{RocksDBStore, StoreManager}
 import com.scalableminds.fossildb.proto.fossildbapi._
 import com.typesafe.scalalogging.LazyLogging
 import io.grpc.health.v1._
@@ -547,14 +547,38 @@ class FossilDBSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHelpers
     val exportedStoreManager = new StoreManager(exportDir, backupDir, List(collectionA, collectionB), None)
     try {
       def read(collection: String, key: String) = {
-        val store = exportedStoreManager.getStore(collection)
-        store.withRawRocksIterator(it => store.get(it, key, None)).map(pair => (pair.version, ByteString.copyFrom(pair.value)))
+        exportedStoreManager.getStore(collection).get(key).map(pair => (pair.version, ByteString.copyFrom(pair.value)))
       }
       assert(read(collectionA, aKey).contains((0L, testData1)))
       assert(read(collectionB, aNotherKey).contains((1L, testData2)))
     } finally {
       exportedStoreManager.close
     }
+  }
+
+  "Bounded iterators" should "not leak into lexicographically adjacent keys" in {
+    // "key@" is the prefix of all versions of "key", the iterator upper bound for it is "keyA"
+    Seq("ke", "key", "key!", "keyA", "keyA0", "kez").zipWithIndex.foreach { case (key, i) =>
+      client.put(PutRequest(collectionA, key, Some(i.toLong), testData1))
+    }
+    assert(client.get(GetRequest(collectionA, "key")).actualVersion == 1)
+    assert(client.getMultipleVersions(GetMultipleVersionsRequest(collectionA, "key")).versions == Seq(1))
+    assert(client.listVersions(ListVersionsRequest(collectionA, "key")).versions == Seq(1))
+    assert(!client.get(GetRequest(collectionA, "k", mayBeEmpty = Some(true))).success)
+    // keys are ordered by their composite key "<key>@...", so e.g. "key!@" sorts before "key@"
+    assert(client.getMultipleKeys(GetMultipleKeysRequest(collectionA, prefix = Some("key"))).keys == Seq("key!", "key", "keyA0", "keyA"))
+    assert(client.listKeys(ListKeysRequest(collectionA, prefix = Some("keyA"))).keys == Seq("keyA0", "keyA"))
+    client.deleteMultipleVersions(DeleteMultipleVersionsRequest(collectionA, "key"))
+    client.deleteAllByPrefix(DeleteAllByPrefixRequest(collectionA, "keyA"))
+    assert(client.listKeys(ListKeysRequest(collectionA)).keys == Seq("ke", "key!", "kez"))
+  }
+
+  "prefixUpperBound" should "return the smallest key greater than all keys with the prefix" in {
+    assert(RocksDBStore.prefixUpperBound("key@".getBytes).map(_.toSeq).contains("keyA".getBytes.toSeq))
+    assert(RocksDBStore.prefixUpperBound(Array[Byte](1, 0x7F)).map(_.toSeq).contains(Seq[Byte](1, 0x80.toByte)))
+    assert(RocksDBStore.prefixUpperBound(Array[Byte](1, 0xFF.toByte, 0xFF.toByte)).map(_.toSeq).contains(Seq[Byte](2)))
+    assert(RocksDBStore.prefixUpperBound(Array[Byte](0xFF.toByte)).isEmpty)
+    assert(RocksDBStore.prefixUpperBound(Array[Byte]()).isEmpty)
   }
 
   "ListVersions" should "list all versions" in {

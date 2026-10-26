@@ -19,7 +19,7 @@ class FossilDBGrpcImpl(storeManager: StoreManager)
 
   override def get(req: GetRequest): Future[GetReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
-    val versionedKeyValuePairOpt = store.withRawRocksIterator{rocksIt => store.get(rocksIt, req.key, req.version)}
+    val versionedKeyValuePairOpt = store.get(req.key, req.version)
     versionedKeyValuePairOpt match {
       case Some(pair) => GetReply(success = true, None, ByteString.copyFrom(pair.value), pair.version)
       case None =>
@@ -30,7 +30,7 @@ class FossilDBGrpcImpl(storeManager: StoreManager)
 
   override def put(req: PutRequest): Future[PutReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
-    val version = store.withRawRocksIterator{rocksIt => req.version.getOrElse(store.get(rocksIt, req.key, None).map(_.version + 1).getOrElse(0L))}
+    val version = req.version.getOrElse(store.get(req.key).map(_.version + 1).getOrElse(0L))
     require(version >= 0, "Version numbers must be non-negative")
     store.put(req.key, version, req.value.toByteArray)
     PutReply(success = true)
@@ -54,20 +54,19 @@ class FossilDBGrpcImpl(storeManager: StoreManager)
 
   override def getMultipleVersions(req: GetMultipleVersionsRequest): Future[GetMultipleVersionsReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
-    val (values, versions) = store.withRawRocksIterator{rocksIt => store.getMultipleVersions(rocksIt, req.key, req.oldestVersion, req.newestVersion)}
+    val (values, versions) = store.getMultipleVersions(req.key, req.oldestVersion, req.newestVersion)
     GetMultipleVersionsReply(success = true, None, values.map(ByteString.copyFrom), versions)
   } { errorMsg => GetMultipleVersionsReply(success = false, errorMsg) }
 
   override def getMultipleKeys(req: GetMultipleKeysRequest): Future[GetMultipleKeysReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
-    val (keys, values, versions) = store.withRawRocksIterator{rocksIt => store.getMultipleKeys(rocksIt, req.startAfterKey, req.prefix, req.version, req.limit)}
+    val (keys, values, versions) = store.getMultipleKeys(req.startAfterKey, req.prefix, req.version, req.limit)
     GetMultipleKeysReply(success = true, None, keys, values.map(ByteString.copyFrom), versions)
   } { errorMsg => GetMultipleKeysReply(success = false, errorMsg) }
 
   override def getMultipleKeysByListWithMultipleVersions(req: GetMultipleKeysByListWithMultipleVersionsRequest): Future[GetMultipleKeysByListWithMultipleVersionsReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
-    val keyVersionsValuesPairs = req.keys.map { key =>
-      val (values, versions) = store.withRawRocksIterator{rocksIt => store.getMultipleVersions(rocksIt, key, req.oldestVersion, req.newestVersion)}
+    val keyVersionsValuesPairs = store.getMultipleKeysByListWithMultipleVersions(req.keys, req.oldestVersion, req.newestVersion).map { case (key, values, versions) =>
       val versionValuePairs = values.zip(versions).map { case (value, version) =>
         VersionValuePairProto(version, ByteString.copyFrom(value))
       }
@@ -78,12 +77,9 @@ class FossilDBGrpcImpl(storeManager: StoreManager)
 
   override def getMultipleKeysByList(req: GetMultipleKeysByListRequest): Future[GetMultipleKeysByListReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
-    val versionValueBoxes = req.keys.map { key =>
-      val versionedKeyValuePairOpt = store.withRawRocksIterator { rocksIt => store.get(rocksIt, key, req.version) }
-      versionedKeyValuePairOpt match {
-        case Some(pair) => VersionValueBoxProto(Some(VersionValuePairProto(pair.version, ByteString.copyFrom(pair.value))), errorMessage = None)
-        case None => VersionValueBoxProto(None, errorMessage = None)
-      }
+    val versionValueBoxes = store.getMultipleKeysByList(req.keys, req.version).map {
+      case Some(pair) => VersionValueBoxProto(Some(VersionValuePairProto(pair.version, ByteString.copyFrom(pair.value))), errorMessage = None)
+      case None => VersionValueBoxProto(None, errorMessage = None)
     }
     GetMultipleKeysByListReply(success = true, None, versionValueBoxes)
   } { errorMsg => GetMultipleKeysByListReply(success = false, errorMsg) }
@@ -99,25 +95,25 @@ class FossilDBGrpcImpl(storeManager: StoreManager)
 
   override def deleteMultipleVersions(req: DeleteMultipleVersionsRequest): Future[DeleteMultipleVersionsReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
-    store.withRawRocksIterator{rocksIt => store.deleteMultipleVersions(rocksIt, req.key, req.oldestVersion, req.newestVersion)}
+    store.deleteMultipleVersions(req.key, req.oldestVersion, req.newestVersion)
     DeleteMultipleVersionsReply(success = true)
   } { errorMsg => DeleteMultipleVersionsReply(success = false, errorMsg) }
 
   override def deleteAllByPrefix(req: DeleteAllByPrefixRequest): Future[DeleteAllByPrefixReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
-    store.withRawRocksIterator{rocksIt => store.deleteAllByPrefix(rocksIt, req.prefix)}
+    store.deleteAllByPrefix(req.prefix)
     DeleteAllByPrefixReply(success = true)
   } { errorMsg => DeleteAllByPrefixReply(success = false, errorMsg)}
 
   override def listKeys(req: ListKeysRequest): Future[ListKeysReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
-    val keys = store.withRawRocksIterator{rocksIt => store.listKeys(rocksIt, req.limit, req.startAfterKey, req.prefix)}
+    val keys = store.listKeys(req.limit, req.startAfterKey, req.prefix)
     ListKeysReply(success = true, None, keys)
   } { errorMsg => ListKeysReply(success = false, errorMsg) }
 
   override def listVersions(req: ListVersionsRequest): Future[ListVersionsReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
-    val versions = store.withRawRocksIterator{rocksIt => store.listVersions(rocksIt, req.key, req.limit, req.offset)}
+    val versions = store.listVersions(req.key, req.limit, req.offset)
     ListVersionsReply(success = true, None, versions)
   } { errorMsg => ListVersionsReply(success = false, errorMsg) }
 
