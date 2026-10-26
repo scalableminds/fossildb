@@ -5,7 +5,7 @@ jobs:
       image: ubuntu-2404:2026.05.1
     environment:
       SBT_VERSION_TAG: master__7830403826
-      TARGET_DIR: target/scala-2.13
+      TARGET_DIR: target/scala-3.10.0
     steps:
       - checkout
 

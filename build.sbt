@@ -3,7 +3,7 @@ import sbt._
 name := "fossildb"
 
 def getVersionFromGit: String = {
-  def run(cmd: String): String = new java.io.BufferedReader(new java.io.InputStreamReader(java.lang.Runtime.getRuntime.exec(cmd).getInputStream)).readLine()
+  def run(cmd: String): String = new java.io.BufferedReader(new java.io.InputStreamReader(java.lang.Runtime.getRuntime.exec(cmd.split("\\s+")).getInputStream)).readLine()
   def getBranch = run("git rev-parse --abbrev-ref HEAD")
 
   if (sys.env.contains("CI") && getBranch == "master") {
@@ -17,22 +17,24 @@ def getVersionFromGit: String = {
 
 ThisBuild / scalacOptions ++= Seq(
   "-feature",
-  "-deprecation"
+  "-deprecation",
+  // ScalaPB 0.11 generates Scala 2 style code that triggers Scala 3 deprecation warnings
+  "-Wconf:src=.*/protobuf-generated/.*:s"
 )
 
 version := getVersionFromGit
 
-scalaVersion := "2.13.15"
+scalaVersion := "3.10.0"
 
 libraryDependencies ++= Seq(
-  "ch.qos.logback" % "logback-classic" % "1.5.6",
-  "com.typesafe.scala-logging" %% "scala-logging" % "3.9.5",
-  "org.scalatest" % "scalatest_2.13" % "3.2.19" % "test",
+  "ch.qos.logback" % "logback-classic" % "1.6.6",
+  "com.typesafe.scala-logging" %% "scala-logging" % "3.9.6",
+  "org.scalatest" %% "scalatest" % "3.2.20" % "test",
   "io.grpc" % "grpc-netty" % scalapb.compiler.Version.grpcJavaVersion,
   "io.grpc" % "grpc-services" % scalapb.compiler.Version.grpcJavaVersion,
   "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % scalapb.compiler.Version.scalapbVersion,
-  "org.rocksdb" % "rocksdbjni" % "9.4.0",
-  "com.github.scopt" %% "scopt" % "4.1.0"
+  "org.rocksdb" % "rocksdbjni" % "11.8.1",
+  "com.github.scopt" %% "scopt" % "4.2.0"
 )
 
 Compile / managedSourceDirectories += target.value / "protobuf-generated"
@@ -60,7 +62,7 @@ lazy val buildInfoSettings = Seq(
     "commitHash" -> new java.lang.Object() {
       override def toString: String = {
         try {
-          val extracted = new java.io.InputStreamReader(java.lang.Runtime.getRuntime.exec("git rev-parse HEAD").getInputStream)
+          val extracted = new java.io.InputStreamReader(java.lang.Runtime.getRuntime.exec(Array("git", "rev-parse", "HEAD")).getInputStream)
           val str = new java.io.BufferedReader(extracted).readLine()
           if (str == null) {
             "get git hash failed"
