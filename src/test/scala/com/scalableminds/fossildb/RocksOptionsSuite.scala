@@ -35,7 +35,7 @@ class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHel
 
 
   private def sstFileProperties(): Seq[TableProperties] =
-    Files.list(dataDir).iterator().asScala.filter(_.toString.endsWith(".sst")).toSeq.map { path =>
+    Using.resource(Files.list(dataDir))(_.iterator().asScala.filter(_.toString.endsWith(".sst")).toList).map { path =>
       Using.Manager { use =>
         val reader = use(new SstFileReader(use(new Options())))
         reader.open(path.toString)
@@ -75,9 +75,10 @@ class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHel
       storeManager.close
     }
     // Before, only the default column family was compacted, so the data stayed in the memtables
-    assert(sstFileProperties().map(p => new String(p.getColumnFamilyName)).sorted == Seq(collectionA, collectionB))
-    assert(sstFileProperties().map(_.getNumEntries).sum == 100)
-    assert(sstFileProperties().map(_.getNumDeletions).sum == 0)
+    val properties = sstFileProperties()
+    assert(properties.map(p => new String(p.getColumnFamilyName)).sorted == Seq(collectionA, collectionB))
+    assert(properties.map(_.getNumEntries).sum == 100)
+    assert(properties.map(_.getNumDeletions).sum == 0)
   }
 
   it should "rewrite bottommost files with the current options" in {
@@ -103,7 +104,8 @@ class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHel
     } finally {
       storeManager.close
     }
-    assert(sstFileProperties().map(_.getCompressionName) != Seq("NoCompression"))
+    val compressionNames = sstFileProperties().map(_.getCompressionName)
+    assert(compressionNames.nonEmpty && compressionNames.forall(_ != "NoCompression"))
   }
 
   it should "fail if specified config file does not exist" in {
