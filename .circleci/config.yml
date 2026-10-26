@@ -5,7 +5,7 @@ jobs:
       image: ubuntu-2404:2026.05.1
     environment:
       SBT_VERSION_TAG: master__7830403826
-      TARGET_DIR: target/scala-3.10.0
+      TARGET_DIR: target
     steps:
       - checkout
 
@@ -22,7 +22,7 @@ jobs:
             echo "export USER_GID=$(id -g)" >> $BASH_ENV
 
       - run:
-          name: Build server
+          name: Build server and run tests
           command: docker compose run -T -e CI=$CI sbt sbt test assembly
 
       - run:

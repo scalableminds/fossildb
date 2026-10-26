@@ -4,7 +4,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends gosu && rm -rf 
 RUN mkdir -p /fossildb
 WORKDIR /fossildb
 
-COPY target/scala-3.10.0/fossildb.jar .
+COPY target/fossildb.jar .
 COPY fossildb .
 
 RUN groupadd -r fossildb \

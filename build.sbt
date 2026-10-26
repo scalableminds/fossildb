@@ -17,9 +17,7 @@ def getVersionFromGit: String = {
 
 ThisBuild / scalacOptions ++= Seq(
   "-feature",
-  "-deprecation",
-  // ScalaPB 0.11 generates Scala 2 style code that triggers Scala 3 deprecation warnings
-  "-Wconf:src=.*/protobuf-generated/.*:s"
+  "-deprecation"
 )
 
 version := getVersionFromGit
@@ -40,7 +38,7 @@ libraryDependencies ++= Seq(
 Compile / managedSourceDirectories += target.value / "protobuf-generated"
 
 Compile / PB.targets := Seq(
-  scalapb.gen() -> (target.value / "protobuf-generated")
+  scalapb.gen(scala3Sources = true) -> (target.value / "protobuf-generated")
 )
 
 Compile / mainClass := Some("com.scalableminds.fossildb.FossilDB")
@@ -48,13 +46,16 @@ Compile / mainClass := Some("com.scalableminds.fossildb.FossilDB")
 assembly / assemblyMergeStrategy := {
   case x if x.endsWith("io.netty.versions.properties") => MergeStrategy.first
   // compare https://stackoverflow.com/questions/54834125/sbt-assembly-deduplicate-module-info-class
-  case x if x.endsWith("module-info.class") => MergeStrategy.concat
+  case x if x.endsWith("module-info.class") => MergeStrategy.discard
   case x =>
     val oldStrategy = (assembly / assemblyMergeStrategy).value
     oldStrategy(x)
 }
 
 assembly / assemblyJarName := "fossildb.jar"
+
+// Keep the jar path independent of the Scala version (used by Dockerfile and CI)
+assembly / assemblyOutputPath := target.value / (assembly / assemblyJarName).value
 
 
 lazy val buildInfoSettings = Seq(
