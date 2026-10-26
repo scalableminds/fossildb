@@ -6,6 +6,9 @@
  - `ListKeys` now supports optional `prefix` field
  - New API endpoint `GetMultipleKeysByList`. [#52](https://github.com/scalableminds/fossildb/pull/52)
 
+## Changed
+- New SST files use lz4 compression, and zstd for the bottommost level, instead of snappy for all levels. Existing snappy files stay readable, but are only converted when a compaction rewrites them, which may never happen for old data. Run `CompactAllData` to convert all files at once. See [Compression](README.md#compression). [#66](https://github.com/scalableminds/fossildb/pull/66)
+
 ## Breaking Changes
 
  - The `GetMultipleKeys` call now takes a `startAfterKey` instead of a `key` for pagination. The returned list will only start *after* this key. [#38](https://github.com/scalableminds/fossildb/pull/38)

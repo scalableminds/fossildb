@@ -108,6 +108,51 @@ class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHel
     assert(compressionNames.nonEmpty && compressionNames.forall(_ != "NoCompression"))
   }
 
+  it should "compress with lz4, and zstd for the bottommost level, without a config file" in {
+    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, None)
+    val store = storeManager.getStore(collectionA)
+    val value = ("some compressible value " * 100).getBytes
+    (0 until 1000).foreach(i => store.put(s"key$i", 0, value))
+    // CompactAllData writes everything to the bottommost level, which uses zstd
+    storeManager.compactAllData()
+    assert(store.withRawRocksIterator(it => store.get(it, "key500", None)).map(_.value.toSeq).contains(value.toSeq))
+    storeManager.close
+
+    val options = new DBOptions()
+    val cfListRef: mutable.Buffer[ColumnFamilyDescriptor] = mutable.Buffer()
+    org.rocksdb.OptionsUtil.loadLatestOptions(new ConfigOptions(), dataDir.toString, options, cfListRef.asJava)
+    val cfOptions = cfListRef.find(cf => new String(cf.getName) == collectionA).get.getOptions
+    assert(cfOptions.compressionType() == CompressionType.LZ4_COMPRESSION)
+    assert(cfOptions.bottommostCompressionType() == CompressionType.ZSTD_COMPRESSION)
+    assert(sstFileProperties().forall(_.getCompressionName == "ZSTD"))
+  }
+
+  it should "convert snappy files of an older database with CompactAllData" in {
+    // Create a database like older FossilDB versions did, with the RocksDB default compression (snappy)
+    RocksDB.loadLibrary()
+    dataDir.toFile.mkdirs()
+    Using.Manager { use =>
+      val columnOptions = use(new ColumnFamilyOptions())
+      val descriptors = (RocksDB.DEFAULT_COLUMN_FAMILY +: columnFamilies.map(_.getBytes)).map(new ColumnFamilyDescriptor(_, columnOptions))
+      val handles = new java.util.ArrayList[ColumnFamilyHandle]
+      val db = use(RocksDB.open(use(new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true)), dataDir.toString, descriptors.asJava, handles))
+      handles.asScala.foreach(use(_))
+      db.put(handles.get(1), VersionedKey("aKey", 0).toString.getBytes, Array[Byte](1))
+      db.compactRange(handles.get(1))
+    }.get
+    assert(sstFileProperties().map(_.getCompressionName) == Seq("Snappy"))
+
+    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, None)
+    try {
+      storeManager.compactAllData()
+      val store = storeManager.getStore(collectionA)
+      assert(store.withRawRocksIterator(it => store.get(it, "aKey", None)).exists(_.value.sameElements(Array[Byte](1))))
+    } finally {
+      storeManager.close
+    }
+    assert(sstFileProperties().map(_.getCompressionName) == Seq("ZSTD"))
+  }
+
   it should "fail if specified config file does not exist" in {
     assertThrows[Exception] {
       new StoreManager(dataDir, backupDir, columnFamilies, Some("nonExistingPath.ini"))
