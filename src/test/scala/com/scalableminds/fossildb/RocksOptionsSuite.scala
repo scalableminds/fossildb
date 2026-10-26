@@ -50,6 +50,21 @@ class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHel
     storeManager.close
   }
 
+  it should "ignore a comparator from the config file" in {
+    val file = new File(testTempDir, "testConfig.ini")
+    writeToFile(file, "[Version]\n  rocksdb_version=5.11.3\n  options_file_version=1.1\n\n[DBOptions]\n\n[CFOptions \"default\"]\n  comparator=rocksdb.ReverseBytewiseComparator\n\n")
+
+    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, Some(file.getPath))
+    try {
+      val store = storeManager.getStore(collectionA)
+      Seq("key", "keyA").foreach(key => (0L to 1L).foreach(store.put(key, _, Array[Byte](1))))
+      assert(store.get("key").map(_.version).contains(1L))
+      assert(store.listVersions("key", None, None) == Seq(1L, 0L))
+    } finally {
+      storeManager.close
+    }
+  }
+
   it should "fail if specified config file does not exist" in {
     assertThrows[Exception] {
       new StoreManager(dataDir, backupDir, columnFamilies, Some("nonExistingPath.ini"))

@@ -16,6 +16,9 @@ object VersionedKey {
 
   val versionSeparator: Char = '@'
 
+  // All versions of key, and only those, start with this
+  def versionPrefix(key: String): String = s"$key$versionSeparator"
+
   def apply(key: String): Option[VersionedKey] = {
     val parts = key.split(versionSeparator)
     for {
@@ -97,20 +100,35 @@ class KeyOnlyIterator[T](rocksIt: RocksIterator, startAfterKey: Option[String], 
 
 class VersionedKeyValueStore(underlying: RocksDBStore) {
 
-  def withRawRocksIterator[T](block: RocksIterator => T): T = underlying.withRawRocksIterator(block)
-
   // Iterator that cannot move past the versions of key
-  def withKeyIterator[T](key: String)(block: RocksIterator => T): T =
-    withPrefixIterator(Some(s"$key${VersionedKey.versionSeparator}"))(block)
+  private[db] def withKeyIterator[T](iterators: BoundedIterators, key: String)(block: RocksIterator => T): T =
+    withPrefixIterator(iterators, Some(VersionedKey.versionPrefix(key)))(block)
 
   // Iterator that cannot move past the keys starting with prefix (unbounded if there is no prefix)
-  def withPrefixIterator[T](prefix: Option[String])(block: RocksIterator => T): T =
-    underlying.withBoundedRocksIterator(prefix.flatMap(p => RocksDBStore.prefixUpperBound(RocksDBStore.encodeKey(p))))(block)
+  private[db] def withPrefixIterator[T](iterators: BoundedIterators, prefix: Option[String])(block: RocksIterator => T): T =
+    iterators.withIterator(prefix.flatMap(p => RocksDBStore.prefixUpperBound(RocksDBStore.encodeKey(p))))(block)
 
-  def get(rocksIt: RocksIterator, key: String, version: Option[Long] = None): Option[VersionedKeyValuePair[Array[Byte]]] =
-    scanVersionValuePairs(rocksIt, key, version).nextOption()
+  def get(key: String, version: Option[Long] = None): Option[VersionedKeyValuePair[Array[Byte]]] =
+    underlying.withIterators(get(_, key, version))
 
-  def getMultipleVersions(rocksIt: RocksIterator, key: String, oldestVersion: Option[Long] = None, newestVersion: Option[Long] = None): (List[Array[Byte]], List[Long]) = {
+  def getMultipleKeysByList(keys: Seq[String], version: Option[Long] = None): Seq[Option[VersionedKeyValuePair[Array[Byte]]]] =
+    underlying.withIterators(iterators => keys.map(get(iterators, _, version)))
+
+  private def get(iterators: BoundedIterators, key: String, version: Option[Long]): Option[VersionedKeyValuePair[Array[Byte]]] =
+    withKeyIterator(iterators, key)(scanVersionValuePairs(_, key, version).nextOption())
+
+  def getMultipleVersions(key: String, oldestVersion: Option[Long] = None, newestVersion: Option[Long] = None): (List[Array[Byte]], List[Long]) =
+    underlying.withIterators(getMultipleVersions(_, key, oldestVersion, newestVersion))
+
+  def getMultipleKeysByListWithMultipleVersions(keys: Seq[String], oldestVersion: Option[Long] = None, newestVersion: Option[Long] = None): Seq[(String, List[Array[Byte]], List[Long])] =
+    underlying.withIterators { iterators =>
+      keys.map { key =>
+        val (values, versions) = getMultipleVersions(iterators, key, oldestVersion, newestVersion)
+        (key, values, versions)
+      }
+    }
+
+  private def getMultipleVersions(iterators: BoundedIterators, key: String, oldestVersion: Option[Long], newestVersion: Option[Long]): (List[Array[Byte]], List[Long]) = {
 
     @tailrec
     def toListIter(versionIterator: Iterator[VersionedKeyValuePair[Array[Byte]]],
@@ -123,14 +141,16 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
       }
     }
 
-    val iterator = scanVersionValuePairs(rocksIt, key, newestVersion)
-    val (versions, keys) = toListIter(iterator, List(), List())
-    (versions.reverse, keys.reverse)
+    withKeyIterator(iterators, key) { rocksIt =>
+      val iterator = scanVersionValuePairs(rocksIt, key, newestVersion)
+      val (versions, keys) = toListIter(iterator, List(), List())
+      (versions.reverse, keys.reverse)
+    }
   }
 
   private def scanVersionValuePairs(rocksIt: RocksIterator, key: String, version: Option[Long] = None): Iterator[VersionedKeyValuePair[Array[Byte]]] = {
     requireValidKey(key)
-    val prefix = s"$key${VersionedKey.versionSeparator}"
+    val prefix = VersionedKey.versionPrefix(key)
     RocksDBStore.scan(rocksIt, version.map(VersionedKey(key, _).toString).getOrElse(prefix), Some(prefix)).flatMap { pair =>
       VersionedKey(pair.key).map(VersionedKeyValuePair(_, pair.value))
     }
@@ -138,15 +158,21 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
 
   private def scanVersionsOnly(rocksIt: RocksIterator, key: String, version: Option[Long] = None): Iterator[VersionedKey] = {
     requireValidKey(key)
-    val prefix = s"$key${VersionedKey.versionSeparator}"
+    val prefix = VersionedKey.versionPrefix(key)
     RocksDBStore.scanKeysOnly(rocksIt, version.map(VersionedKey(key, _).toString).getOrElse(prefix), Some(prefix)).flatMap { key =>
       VersionedKey(key)
     }
   }
 
-  def getMultipleKeys(rocksIt: RocksIterator, startAfterKey: Option[String], prefix: Option[String] = None, version: Option[Long] = None, limit: Option[Int]): (Seq[String], Seq[Array[Byte]], Seq[Long]) = {
+  def getMultipleKeys(startAfterKey: Option[String], prefix: Option[String] = None, version: Option[Long] = None, limit: Option[Int]): (Seq[String], Seq[Array[Byte]], Seq[Long]) = {
     startAfterKey.foreach(requireValidKey)
     prefix.foreach{ p => requireValidKey(p)}
+    underlying.withIterators { iterators =>
+      withPrefixIterator(iterators, prefix)(getMultipleKeys(_, startAfterKey, prefix, version, limit))
+    }
+  }
+
+  private def getMultipleKeys(rocksIt: RocksIterator, startAfterKey: Option[String], prefix: Option[String], version: Option[Long], limit: Option[Int]): (Seq[String], Seq[Array[Byte]], Seq[Long]) = {
     val iterator: VersionFilterIterator = scanKeys(rocksIt, startAfterKey, prefix, version)
 
     /*
@@ -173,11 +199,11 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
   }
 
   private def scanKeys(rocksIt: RocksIterator, startAfterKey: Option[String], prefix: Option[String] = None, version: Option[Long] = None): VersionFilterIterator = {
-    val fullKey = startAfterKey.map(key => s"$key${VersionedKey.versionSeparator}").orElse(prefix).getOrElse("")
+    val fullKey = startAfterKey.map(VersionedKey.versionPrefix).orElse(prefix).getOrElse("")
     new VersionFilterIterator(RocksDBStore.scan(rocksIt, fullKey, prefix), version)
   }
 
-  def deleteMultipleVersions(rocksIt: RocksIterator, key: String, oldestVersion: Option[Long] = None, newestVersion: Option[Long] = None): Unit = {
+  def deleteMultipleVersions(key: String, oldestVersion: Option[Long] = None, newestVersion: Option[Long] = None): Unit = {
     @tailrec
     def deleteIter(versionIterator: Iterator[VersionedKey]): Unit = {
       if (versionIterator.hasNext) {
@@ -189,13 +215,17 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
       }
     }
 
-    val versionsIterator = scanVersionsOnly(rocksIt, key, newestVersion)
-    deleteIter(versionsIterator)
+    underlying.withIterators { iterators =>
+      withKeyIterator(iterators, key)(rocksIt => deleteIter(scanVersionsOnly(rocksIt, key, newestVersion)))
+    }
   }
 
-  def deleteAllByPrefix(rocksIt: RocksIterator, prefix: String): Unit = {
-    RocksDBStore.scanKeysOnly(rocksIt, prefix, Some(prefix)).foreach(underlying.delete)
-  }
+  def deleteAllByPrefix(prefix: String): Unit =
+    underlying.withIterators { iterators =>
+      withPrefixIterator(iterators, Some(prefix)) { rocksIt =>
+        RocksDBStore.scanKeysOnly(rocksIt, prefix, Some(prefix)).foreach(underlying.delete)
+      }
+    }
 
   def put(key: String, version: Long, value: Array[Byte]): Unit = {
     requireValidKey(key)
@@ -207,15 +237,21 @@ class VersionedKeyValueStore(underlying: RocksDBStore) {
     underlying.delete(VersionedKey.asString(key, version))
   }
 
-  def listKeys(rocksIt: RocksIterator, limit: Option[Int], startAfterKey: Option[String], prefix: Option[String]): Seq[String] = {
-    val iterator = new KeyOnlyIterator(rocksIt, startAfterKey, prefix)
-    iterator.take(limit.getOrElse(Int.MaxValue)).toSeq
-  }
+  def listKeys(limit: Option[Int], startAfterKey: Option[String], prefix: Option[String]): Seq[String] =
+    underlying.withIterators { iterators =>
+      withPrefixIterator(iterators, prefix) { rocksIt =>
+        val iterator = new KeyOnlyIterator(rocksIt, startAfterKey, prefix)
+        iterator.take(limit.getOrElse(Int.MaxValue)).toSeq
+      }
+    }
 
-  def listVersions(rocksIt: RocksIterator, key: String, limit: Option[Int], offset: Option[Int]): Seq[Long] = {
-    val iterator = scanVersionsOnly(rocksIt, key)
-    iterator.map(_.version).drop(offset.getOrElse(0)).take(limit.getOrElse(Int.MaxValue)).toSeq
-  }
+  def listVersions(key: String, limit: Option[Int], offset: Option[Int]): Seq[Long] =
+    underlying.withIterators { iterators =>
+      withKeyIterator(iterators, key) { rocksIt =>
+        val iterator = scanVersionsOnly(rocksIt, key)
+        iterator.map(_.version).drop(offset.getOrElse(0)).take(limit.getOrElse(Int.MaxValue)).toSeq
+      }
+    }
 
   private def requireValidKey(key: String): Unit = {
     require(!key.contains(VersionedKey.versionSeparator), s"keys cannot contain the char ${VersionedKey.versionSeparator}")

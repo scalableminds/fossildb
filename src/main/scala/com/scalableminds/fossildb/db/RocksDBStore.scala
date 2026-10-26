@@ -33,6 +33,9 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
         Using.resource(new ConfigOptions()) { configOptions =>
           org.rocksdb.OptionsUtil.loadOptionsFromFile(configOptions, optionsFilePath, options, cfListRef.asJava)
         }
+        // Version ordering, prefix scans and iterator upper bounds all rely on bytewise key order.
+        // Opening a DB that was created with a different comparator fails instead of silently returning wrong results.
+        cfListRef.foreach(_.getOptions.setComparator(BuiltinComparator.BYTEWISE_COMPARATOR))
         logger.info("successfully loaded rocksdb options from " + optionsFilePath)
       } catch {
         case e: Exception =>
@@ -158,16 +161,11 @@ class RocksDBIterator(it: RocksIterator, prefix: Option[String]) extends Iterato
 
 class RocksDBStore(db: RocksDB, handle: ColumnFamilyHandle) extends LazyLogging {
 
-  def withRawRocksIterator[T](block: RocksIterator => T): T = withBoundedRocksIterator(None)(block)
+  def withRawRocksIterator[T](block: RocksIterator => T): T = withIterators(_.withIterator(None)(block))
 
-  // With an upper bound (exclusive), the iterator becomes invalid at the bound instead of reading on into
-  // the following keys, which is much cheaper when deletion tombstones follow the range of interest.
-  def withBoundedRocksIterator[T](upperBound: Option[Array[Byte]])(block: RocksIterator => T): T =
-    Using.Manager { use =>
-      val readOptions = use(new ReadOptions())
-      upperBound.foreach(bound => readOptions.setIterateUpperBound(use(new Slice(bound))))
-      block(use(db.newIterator(handle, readOptions)))
-    }.get
+  // The iterators share one ReadOptions, so a request reading many keys only allocates it once
+  def withIterators[T](block: BoundedIterators => T): T =
+    Using.resource(new ReadOptions())(readOptions => block(new BoundedIterators(db, handle, readOptions)))
 
   def get(key: String): Array[Byte] = {
     db.get(handle, RocksDBStore.encodeKey(key))
@@ -180,6 +178,20 @@ class RocksDBStore(db: RocksDB, handle: ColumnFamilyHandle) extends LazyLogging 
   def delete(key: String): Unit = {
     db.delete(handle, RocksDBStore.encodeKey(key))
   }
+
+}
+
+class BoundedIterators(db: RocksDB, handle: ColumnFamilyHandle, readOptions: ReadOptions) {
+
+  // With an upper bound (exclusive), the iterator becomes invalid at the bound instead of reading on into
+  // the following keys, which is much cheaper when deletion tombstones follow the range of interest.
+  // The iterator keeps a pointer to the bound, so the bound is closed after the iterator.
+  def withIterator[T](upperBound: Option[Array[Byte]])(block: RocksIterator => T): T =
+    Using.Manager { use =>
+      val upperBoundSlice = upperBound.map(bound => use(new Slice(bound)))
+      readOptions.setIterateUpperBound(upperBoundSlice.orNull)
+      block(use(db.newIterator(handle, readOptions)))
+    }.get
 
 }
 

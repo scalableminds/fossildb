@@ -547,8 +547,7 @@ class FossilDBSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHelpers
     val exportedStoreManager = new StoreManager(exportDir, backupDir, List(collectionA, collectionB), None)
     try {
       def read(collection: String, key: String) = {
-        val store = exportedStoreManager.getStore(collection)
-        store.withRawRocksIterator(it => store.get(it, key, None)).map(pair => (pair.version, ByteString.copyFrom(pair.value)))
+        exportedStoreManager.getStore(collection).get(key).map(pair => (pair.version, ByteString.copyFrom(pair.value)))
       }
       assert(read(collectionA, aKey).contains((0L, testData1)))
       assert(read(collectionB, aNotherKey).contains((1L, testData2)))
