@@ -36,6 +36,13 @@ class FossilDBGrpcImpl(storeManager: StoreManager)
     PutReply(success = true)
   } { errorMsg => PutReply(success = false, errorMsg) }
 
+  override def putIfVersionMatches(req: PutIfVersionMatchesRequest): Future[PutIfVersionMatchesReply] = withExceptionHandler(req) {
+    val store = storeManager.getStore(req.collection)
+    val (applied, actualVersion) =
+      store.putIfVersionMatches(req.key, req.expectedActualVersion, req.newVersion, req.value.toByteArray)
+    PutIfVersionMatchesReply(success = true, None, applied, actualVersion)
+  } { errorMsg => PutIfVersionMatchesReply(success = false, errorMsg, applied = false, None) }
+
   override def putMultipleVersions(req: PutMultipleVersionsRequest): Future[PutMultipleVersionsReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
     require(req.versions.length == req.values.length, s"Must supply as many versions as values, got ${req.versions.length} versions vs ${req.values.length} values.")

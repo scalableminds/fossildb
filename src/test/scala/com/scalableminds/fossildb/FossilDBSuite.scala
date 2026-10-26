@@ -583,4 +583,118 @@ class FossilDBSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHelpers
     assert(reply.versions.contains(2))
   }
 
+  "PutIfVersionMatches" should "write when the key does not exist yet and no version was expected" in {
+    val reply = client.putIfVersionMatches(PutIfVersionMatchesRequest(collectionA, aKey, None, None, testData1))
+    assert(reply.success)
+    assert(reply.applied)
+    assert(reply.actualVersion.contains(0))
+    assert(client.get(GetRequest(collectionA, aKey)).value == testData1)
+  }
+
+  it should "refuse a second write that also expects the key to be absent" in {
+    client.putIfVersionMatches(PutIfVersionMatchesRequest(collectionA, aKey, None, None, testData1))
+    val reply = client.putIfVersionMatches(PutIfVersionMatchesRequest(collectionA, aKey, None, None, testData2))
+    assert(reply.success)
+    assert(!reply.applied)
+    assert(reply.actualVersion.contains(0))
+    assert(client.get(GetRequest(collectionA, aKey)).value == testData1)
+  }
+
+  it should "write when the expected version is the stored one" in {
+    client.put(PutRequest(collectionA, aKey, Some(5), testData1))
+    val reply = client.putIfVersionMatches(PutIfVersionMatchesRequest(collectionA, aKey, Some(5), None, testData2))
+    assert(reply.applied)
+    assert(reply.actualVersion.contains(6))
+    assert(client.get(GetRequest(collectionA, aKey)).value == testData2)
+  }
+
+  it should "leave the value alone when the expected version is stale" in {
+    client.put(PutRequest(collectionA, aKey, Some(5), testData1))
+    client.put(PutRequest(collectionA, aKey, Some(6), testData2))
+    val reply = client.putIfVersionMatches(PutIfVersionMatchesRequest(collectionA, aKey, Some(5), None, testData3))
+    assert(reply.success)
+    assert(!reply.applied)
+    assert(reply.actualVersion.contains(6))
+    assert(client.get(GetRequest(collectionA, aKey)).value == testData2)
+  }
+
+  it should "report no version at all when the key is absent but one was expected" in {
+    val reply = client.putIfVersionMatches(PutIfVersionMatchesRequest(collectionA, aKey, Some(3), None, testData1))
+    assert(reply.success)
+    assert(!reply.applied)
+    assert(reply.actualVersion.isEmpty)
+  }
+
+  it should "honour an explicit new version" in {
+    client.put(PutRequest(collectionA, aKey, Some(5), testData1))
+    val reply = client.putIfVersionMatches(PutIfVersionMatchesRequest(collectionA, aKey, Some(5), Some(100), testData2))
+    assert(reply.applied)
+    assert(reply.actualVersion.contains(100))
+    assert(client.get(GetRequest(collectionA, aKey)).value == testData2)
+  }
+
+  it should "still move the version forward when the caller asks for one that is too low" in {
+    // A caller whose clock runs slow would otherwise write a version that every
+    // later read skips over, losing the write without saying so.
+    client.put(PutRequest(collectionA, aKey, Some(5), testData1))
+    val reply = client.putIfVersionMatches(PutIfVersionMatchesRequest(collectionA, aKey, Some(5), Some(2), testData2))
+    assert(reply.applied)
+    assert(reply.actualVersion.contains(6))
+    assert(client.get(GetRequest(collectionA, aKey)).value == testData2)
+  }
+
+  it should "let exactly one of many concurrent contenders through" in {
+    val contenders = 16
+    val barrier = new java.util.concurrent.CyclicBarrier(contenders)
+    val applied = new java.util.concurrent.atomic.AtomicInteger(0)
+    val threads = (0 until contenders).map { i =>
+      new Thread(() => {
+        barrier.await()
+        val reply = client.putIfVersionMatches(
+          PutIfVersionMatchesRequest(collectionA, aKey, None, None, ByteString.copyFromUtf8(s"contender$i")))
+        if (reply.applied) applied.incrementAndGet()
+      })
+    }
+    threads.foreach(_.start())
+    threads.foreach(_.join())
+    assert(applied.get == 1)
+    assert(client.listVersions(ListVersionsRequest(collectionA, aKey)).versions == Seq(0))
+  }
+
+  it should "let a counter be incremented without losing a single increment" in {
+    // This is how a backend without an Increment RPC allocates ids: read, then
+    // compare-and-set, and retry when someone else got there first.
+    val threads = 8
+    val perThread = 25
+    val barrier = new java.util.concurrent.CyclicBarrier(threads)
+
+    def increment(): Unit = {
+      var done = false
+      while (!done) {
+        val current = client.get(GetRequest(collectionA, aKey, mayBeEmpty = Some(true)))
+        val (expected, count) =
+          if (current.success) (Some(current.actualVersion), current.value.toStringUtf8.toInt) else (None, 0)
+        val reply = client.putIfVersionMatches(
+          PutIfVersionMatchesRequest(collectionA, aKey, expected, None, ByteString.copyFromUtf8((count + 1).toString)))
+        done = reply.applied
+      }
+    }
+
+    val workers = (0 until threads).map(_ => new Thread(() => {
+      barrier.await()
+      (0 until perThread).foreach(_ => increment())
+    }))
+    workers.foreach(_.start())
+    workers.foreach(_.join())
+    assert(client.get(GetRequest(collectionA, aKey)).value.toStringUtf8 == (threads * perThread).toString)
+  }
+
+  it should "keep collections apart" in {
+    client.putIfVersionMatches(PutIfVersionMatchesRequest(collectionA, aKey, None, None, testData1))
+    val reply = client.putIfVersionMatches(PutIfVersionMatchesRequest(collectionB, aKey, None, None, testData2))
+    assert(reply.applied)
+    assert(client.get(GetRequest(collectionA, aKey)).value == testData1)
+    assert(client.get(GetRequest(collectionB, aKey)).value == testData2)
+  }
+
 }
