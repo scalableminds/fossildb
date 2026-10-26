@@ -1,11 +1,13 @@
 # Changelog
 
 ## Added
- - New SST files use lz4 compression, and zstd for the bottommost level, instead of snappy for all levels. Existing snappy files stay readable, but are only converted when a compaction rewrites them, which may never happen for old data. Run `CompactAllData` to convert all files at once. See [Compression](README.md#compression).
  - New API endpoints `DeleteAllByPrefix` and `PutMultipleVersions`. [#47](https://github.com/scalableminds/fossildb/pull/47)
  - New API endpoints `GetMultipleKeysByListWithMultipleVersions` and `PutMultipleKeysWithMultipleVersions` for reading and writing multiple keys/versions in one request. [#48](https://github.com/scalableminds/fossildb/pull/48)
  - `ListKeys` now supports optional `prefix` field
  - New API endpoint `GetMultipleKeysByList`. [#52](https://github.com/scalableminds/fossildb/pull/52)
+
+## Changed
+- New SST files use lz4 compression, and zstd for the bottommost level, instead of snappy for all levels. Existing snappy files stay readable, but are only converted when a compaction rewrites them, which may never happen for old data. Run `CompactAllData` to convert all files at once. See [Compression](README.md#compression). [#66](https://github.com/scalableminds/fossildb/pull/66)
 
 ## Breaking Changes
 
