@@ -23,7 +23,7 @@ For further options, see `help`:
                            column families of the database (created if there is no db yet)
   -r, --rocksOptionsFile <filepath>
                            rocksdb options file. Default: None
-  --blockCacheSize <MB>    size of the block cache shared by all column families, in MB. Default: 512
+  --blockCacheSizeMB <MB>  size of the block cache shared by all column families, in MB (10^6 bytes). Has no effect if --rocksOptionsFile is set, then the table options from that file apply. Default: 512
 ```
 
 ## API

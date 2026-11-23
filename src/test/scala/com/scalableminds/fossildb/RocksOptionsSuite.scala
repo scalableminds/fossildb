@@ -37,7 +37,7 @@ class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHel
     val file = new File(testTempDir, "testConfig.ini")
     writeToFile(file, "[Version]\n  rocksdb_version=5.11.3\n  options_file_version=1.1\n\n[DBOptions]\n  stats_dump_period_sec=700\n\n[CFOptions \"default\"]\n\n")
 
-    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, Some(file.getPath))
+    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, Some(file.getPath), ConfigDefaults.blockCacheSizeMB)
 
     val options = new DBOptions()
       .setStatsDumpPeriodSec(100)
@@ -51,7 +51,7 @@ class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHel
   }
 
   it should "use the shared block cache for index and filter blocks without a config file" in {
-    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, None, blockCacheSizeBytes = 64L * 1024 * 1024)
+    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, None, blockCacheSizeMB = 64)
     val store = storeManager.getStore(collectionA)
     store.put("aKey", 0, Array[Byte](1))
     storeManager.compactAllData()
@@ -65,7 +65,7 @@ class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHel
 
   it should "fail if specified config file does not exist" in {
     assertThrows[Exception] {
-      new StoreManager(dataDir, backupDir, columnFamilies, Some("nonExistingPath.ini"))
+      new StoreManager(dataDir, backupDir, columnFamilies, Some("nonExistingPath.ini"), ConfigDefaults.blockCacheSizeMB)
     }
   }
 
@@ -74,7 +74,7 @@ class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHel
     writeToFile(file, "[Version]\n  rocksdb_version=5.11.3\n  options_file_version=1.1\n\n[DBOptions]\n  stats_dump_period_sec=700")
 
     assertThrows[Exception] {
-      new StoreManager(dataDir, backupDir, columnFamilies, Some(file.getPath))
+      new StoreManager(dataDir, backupDir, columnFamilies, Some(file.getPath), ConfigDefaults.blockCacheSizeMB)
     }
   }
 

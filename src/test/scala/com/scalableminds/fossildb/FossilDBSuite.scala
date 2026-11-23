@@ -40,7 +40,7 @@ class FossilDBSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHelpers
 
     val columnFamilies = List(collectionA, collectionB)
 
-    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, None)
+    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, None, ConfigDefaults.blockCacheSizeMB)
 
     serverOpt.foreach(_.stop())
     serverOpt = Some(new FossilDBServer(storeManager, port, ExecutionContext.global))
@@ -544,7 +544,7 @@ class FossilDBSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHelpers
     assert(client.exportDB(ExportDBRequest(exportDir.toString)).success)
 
     // fails with a lock error if the export did not close the new DB
-    val exportedStoreManager = new StoreManager(exportDir, backupDir, List(collectionA, collectionB), None)
+    val exportedStoreManager = new StoreManager(exportDir, backupDir, List(collectionA, collectionB), None, ConfigDefaults.blockCacheSizeMB)
     try {
       def read(collection: String, key: String) = {
         val store = exportedStoreManager.getStore(collection)

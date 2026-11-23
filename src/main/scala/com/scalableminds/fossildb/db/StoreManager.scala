@@ -4,7 +4,7 @@ import java.nio.file.{Path, Paths}
 import java.util.concurrent.atomic.AtomicBoolean
 
 class StoreManager(dataDir: Path, backupDir: Path, columnFamilies: List[String], rocksdbOptionsFile: Option[String],
-                   blockCacheSizeBytes: Long = RocksDBManager.defaultBlockCacheSizeBytes) {
+                   blockCacheSizeMB: Long) {
 
   private var rocksDBManager: Option[RocksDBManager] = None
   private var stores: Option[Map[String, VersionedKeyValueStore]] = None
@@ -13,7 +13,7 @@ class StoreManager(dataDir: Path, backupDir: Path, columnFamilies: List[String],
 
   private def reInitialize(): Unit = {
     rocksDBManager.foreach(_.close())
-    rocksDBManager = Some(new RocksDBManager(dataDir, columnFamilies, rocksdbOptionsFile, blockCacheSizeBytes))
+    rocksDBManager = Some(new RocksDBManager(dataDir, columnFamilies, rocksdbOptionsFile, blockCacheSizeMB))
     stores = Some(columnFamilies.map { cf =>
       val store: VersionedKeyValueStore = new VersionedKeyValueStore(rocksDBManager.get.getStoreForColumnFamily(cf).get)
       cf -> store
