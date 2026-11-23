@@ -21,7 +21,23 @@ For further options, see `help`:
   -b, --backupDir <path>   backup directory. Default: backup
   -c, --columnFamilies <cf1>,<cf2>...
                            column families of the database (created if there is no db yet)
+  -r, --rocksOptionsFile <filepath>
+                           rocksdb options file
 ```
+
+## RocksDB Options File
+With `--rocksOptionsFile`, collections are **not** stored in the column families of the same name.
+FossilDB opens the column families listed in the options file first (in file order, usually starting with `default`),
+followed by all collections given with `-c`. The n-th collection in `-c` then uses the n-th of these column families.
+
+For example, with an options file that only lists `default` and `-c collectionA,collectionB`,
+`collectionA` is stored in the column family `default` and `collectionB` in the column family `collectionA`.
+
+This mapping is kept for compatibility with existing databases. To keep reading the same data:
+ - Always start the database with the same options file, or one that lists the same column families in the same order.
+ - Do not reorder or remove collections in `-c`.
+ - Do not drop `--rocksOptionsFile` for a database that was created with it, or vice versa.
+ - Tools like `ldb` show the column family names, not the collection names.
 
 ## Compression
 SST files are compressed with lz4, and with zstd for the bottommost level, which holds most of the data.

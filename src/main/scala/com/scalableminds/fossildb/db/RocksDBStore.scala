@@ -56,6 +56,10 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
       dataDir.toAbsolutePath.toString,
       columnFamilyDescriptors.asJava,
       columnFamilyHandles)
+    // Collections are mapped to handles by position, and handles come back in descriptor order: options file
+    // column families first, then all configured ones (the diff above compares Array[Byte] by reference, so it
+    // removes nothing). With an options file, collections therefore don't use the column family of the same name.
+    // Existing databases rely on this mapping, so it must not change. See README.md#rocksdb-options-file.
     (db, columnFamilies.zip(columnFamilyHandles.asScala).toMap)
   } catch {
     case e: Throwable =>
