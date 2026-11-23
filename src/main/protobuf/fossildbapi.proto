@@ -55,6 +55,31 @@ message PutReply {
     optional string errorMessage = 2;
 }
 
+message PutIfVersionMatchesRequest {
+    required string collection = 1;
+    required string key = 2;
+    // The version the caller believes is currently stored. Absent means the
+    // caller believes the key does not exist at all.
+    optional uint64 expectedActualVersion = 3;
+    // The version to write. Absent means "the server picks", as in Put. Either
+    // way the version actually written is greater than the one already stored,
+    // so a key's versions only ever go up -- see the reply's actualVersion.
+    optional uint64 newVersion = 4;
+    required bytes value = 5;
+}
+
+message PutIfVersionMatchesReply {
+    required bool success = 1;
+    optional string errorMessage = 2;
+    // Whether the expectation held and the value was written. A false here is
+    // not an error: it is another writer having got there first.
+    required bool applied = 3;
+    // The version now in effect for this key: the one just written when
+    // applied, otherwise the one that was already there. Absent only when the
+    // key does not exist, which can only happen when applied is false.
+    optional uint64 actualVersion = 4;
+}
+
 message PutMultipleVersionsRequest {
     required string collection = 1;
     required string key = 2;
@@ -235,6 +260,7 @@ service FossilDB {
     rpc GetMultipleKeysByList (GetMultipleKeysByListRequest) returns (GetMultipleKeysByListReply) {}
     rpc GetMultipleKeysByListWithMultipleVersions (GetMultipleKeysByListWithMultipleVersionsRequest) returns (GetMultipleKeysByListWithMultipleVersionsReply) {}
     rpc Put (PutRequest) returns (PutReply) {}
+    rpc PutIfVersionMatches (PutIfVersionMatchesRequest) returns (PutIfVersionMatchesReply) {}
     rpc PutMultipleVersions (PutMultipleVersionsRequest) returns (PutMultipleVersionsReply) {}
     rpc PutMultipleKeysWithMultipleVersions (PutMultipleKeysWithMultipleVersionsRequest) returns (PutMultipleKeysWithMultipleVersionsReply) {}
     rpc Delete (DeleteRequest) returns (DeleteReply) {}

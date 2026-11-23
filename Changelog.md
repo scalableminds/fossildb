@@ -5,6 +5,7 @@
  - New API endpoints `GetMultipleKeysByListWithMultipleVersions` and `PutMultipleKeysWithMultipleVersions` for reading and writing multiple keys/versions in one request. [#48](https://github.com/scalableminds/fossildb/pull/48)
  - `ListKeys` now supports optional `prefix` field
  - New API endpoint `GetMultipleKeysByList`. [#52](https://github.com/scalableminds/fossildb/pull/52)
+ - New API endpoint `PutIfVersionMatches`: writes a new version of a key only if the newest stored version is the one the caller expects, and reports the version now in effect. An absent `expectedActualVersion` means the caller expects the key not to exist. This is the primitive a client needs to take a lock or allocate ids without a second coordination service; `applied = false` is another writer having got there first, not an error.
 
 ## Changed
 - New SST files use lz4 compression, and zstd for the bottommost level, instead of snappy for all levels. Existing snappy files stay readable, but are only converted when a compaction rewrites them, which may never happen for old data. Run `CompactAllData` to convert all files at once. See [Compression](README.md#compression). [#66](https://github.com/scalableminds/fossildb/pull/66)
