@@ -108,6 +108,12 @@ class FossilDBSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHelpers
     assert(reply3.value == testData3)
   }
 
+  it should "write nothing if one of the keys is invalid" in {
+    val reply = client.putMultipleKeysWithMultipleVersions(PutMultipleKeysWithMultipleVersionsRequest(collectionA, Seq(VersionedKeyValuePairProto(aKey, 0, testData1), VersionedKeyValuePairProto(aNotherKey, 0, testData2), VersionedKeyValuePairProto("invalid@key", 0, testData3))))
+    assert(!reply.success)
+    assert(client.listKeys(ListKeysRequest(collectionA)).keys.isEmpty)
+  }
+
   "Get" should "return matching value after matching Put" in {
     client.put(PutRequest(collectionA, aKey, Some(0), testData1))
     val reply = client.get(GetRequest(collectionA, aKey, Some(0)))
