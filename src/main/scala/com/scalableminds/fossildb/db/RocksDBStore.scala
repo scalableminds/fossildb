@@ -26,9 +26,8 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     .setMaxBytesForLevelBase(10L * 1024 * 1024 * 1024) // 10GB
     // The bottommost level holds most of the data (including old versions), so compress it well with zstd.
     // Upper levels are rewritten frequently by compactions, so use the faster lz4 there.
-    // Before, the RocksDB default (snappy) was used for all levels. Every SST file records its own compression, so
-    // existing snappy files stay readable. They are only rewritten when a compaction picks them up, which may never
-    // happen for bottommost files of data that isn't written anymore. Use compactAllData to convert all of them.
+    // Every SST file records its own compression, so files written with other compression types stay readable.
+    // They are only rewritten when a compaction picks them up. compactAllData rewrites all of them.
     .setCompressionType(CompressionType.LZ4_COMPRESSION)
     .setBottommostCompressionType(CompressionType.ZSTD_COMPRESSION)
   private val options = new DBOptions()
@@ -106,7 +105,7 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     // A manual compaction skips the bottommost level by default. Forcing it rewrites all files with the
     // current options (e.g. compression), and drops deleted and overwritten entries there.
     Using.resource(new CompactRangeOptions().setBottommostLevelCompaction(CompactRangeOptions.BottommostLevelCompaction.kForceOptimized)) { compactRangeOptions =>
-      // compactRange() without a handle would only compact the default column family, which holds no data
+      // The data lives in the named column families, so compact each of them
       columnFamilyHandles.values.foreach(handle => db.compactRange(handle, null, null, compactRangeOptions))
     }
 

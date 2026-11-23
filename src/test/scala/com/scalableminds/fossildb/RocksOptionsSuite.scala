@@ -74,7 +74,7 @@ class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHel
     } finally {
       storeManager.close
     }
-    // Before, only the default column family was compacted, so the data stayed in the memtables
+    // All data of both column families is flushed and compacted into SST files, without the deleted entries
     val properties = sstFileProperties()
     assert(properties.map(p => new String(p.getColumnFamilyName)).sorted == Seq(collectionA, collectionB))
     assert(properties.map(_.getNumEntries).sum == 100)
@@ -82,7 +82,7 @@ class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHel
   }
 
   it should "rewrite bottommost files with the current options" in {
-    // Write files to the bottommost level with options that differ from FossilDB's (no compression)
+    // Write uncompressed files to the bottommost level
     RocksDB.loadLibrary()
     dataDir.toFile.mkdirs()
     Using.Manager { use =>
@@ -127,8 +127,8 @@ class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHel
     assert(sstFileProperties().forall(_.getCompressionName == "ZSTD"))
   }
 
-  it should "convert snappy files of an older database with CompactAllData" in {
-    // Create a database like older FossilDB versions did, with the RocksDB default compression (snappy)
+  it should "convert snappy files to zstd" in {
+    // Write files with the RocksDB default compression (snappy)
     RocksDB.loadLibrary()
     dataDir.toFile.mkdirs()
     Using.Manager { use =>

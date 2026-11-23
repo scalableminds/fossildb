@@ -245,7 +245,7 @@ service FossilDB {
     rpc Backup (BackupRequest) returns (BackupReply) {}
     rpc RestoreFromBackup (RestoreFromBackupRequest) returns (RestoreFromBackupReply) {}
     // Rewrites all data files with the current options, dropping deleted and overwritten entries.
-    // This also converts snappy-compressed files of older FossilDB versions to lz4/zstd.
+    // This also converts files written with other compression types (e.g. snappy) to lz4/zstd.
     rpc CompactAllData (CompactAllDataRequest) returns (CompactAllDataReply) {}
     rpc ExportDB (ExportDBRequest) returns (ExportDBReply) {}
 }
