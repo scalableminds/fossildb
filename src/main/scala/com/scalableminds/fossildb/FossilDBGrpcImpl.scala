@@ -2,7 +2,7 @@ package com.scalableminds.fossildb
 
 import java.io.{PrintWriter, StringWriter}
 import com.google.protobuf.ByteString
-import com.scalableminds.fossildb.db.StoreManager
+import com.scalableminds.fossildb.db.{StoreManager, VersionedKey, VersionedKeyValuePair}
 import com.scalableminds.fossildb.proto.fossildbapi._
 import scalapb.GeneratedMessage
 import com.typesafe.scalalogging.LazyLogging
@@ -40,9 +40,9 @@ class FossilDBGrpcImpl(storeManager: StoreManager)
     val store = storeManager.getStore(req.collection)
     require(req.versions.length == req.values.length, s"Must supply as many versions as values, got ${req.versions.length} versions vs ${req.values.length} values.")
     require(req.versions.forall(_ >= 0), "Version numbers must be non-negative")
-    req.versions.zip(req.values).foreach { case (version, value) =>
-      store.put(req.key, version, value.toByteArray)
-    }
+    store.putMultiple(req.versions.zip(req.values).map { case (version, value) =>
+      VersionedKeyValuePair(VersionedKey(req.key, version), value.toByteArray)
+    })
     PutMultipleVersionsReply(success = true)
   } { errorMsg => PutMultipleVersionsReply(success = false, errorMsg)}
 
@@ -91,9 +91,9 @@ class FossilDBGrpcImpl(storeManager: StoreManager)
   override def putMultipleKeysWithMultipleVersions(req: PutMultipleKeysWithMultipleVersionsRequest): Future[PutMultipleKeysWithMultipleVersionsReply] = withExceptionHandler(req) {
     val store = storeManager.getStore(req.collection)
     require(req.versionedKeyValuePairs.forall(_.version >= 0), "Version numbers must be non-negative")
-    req.versionedKeyValuePairs.foreach { pair =>
-      store.put(pair.key, pair.version, pair.value.toByteArray)
-    }
+    store.putMultiple(req.versionedKeyValuePairs.map { pair =>
+      VersionedKeyValuePair(VersionedKey(pair.key, pair.version), pair.value.toByteArray)
+    })
     PutMultipleKeysWithMultipleVersionsReply(success = true, None)
   } { errorMsg => PutMultipleKeysWithMultipleVersionsReply(success = false, errorMsg) }
 

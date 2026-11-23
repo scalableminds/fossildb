@@ -31,6 +31,12 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     .setArenaBlockSize(4L * 1024 * 1024) // 4MB
     .setTargetFileSizeBase(1024L * 1024 * 1024) // 1GB
     .setMaxBytesForLevelBase(10L * 1024 * 1024 * 1024) // 10GB
+    // The bottommost level holds most of the data (including old versions), so compress it well with zstd.
+    // Upper levels are rewritten frequently by compactions, so use the faster lz4 there.
+    // Every SST file records its own compression, so files written with other compression types stay readable.
+    // They are only rewritten when a compaction picks them up. compactAllData rewrites all of them.
+    .setCompressionType(CompressionType.LZ4_COMPRESSION)
+    .setBottommostCompressionType(CompressionType.ZSTD_COMPRESSION)
     .setTableFormatConfig(tableConfig)
   private val options = new DBOptions()
   private val cfListRef: mutable.Buffer[ColumnFamilyDescriptor] = mutable.Buffer()
@@ -58,6 +64,10 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
       dataDir.toAbsolutePath.toString,
       columnFamilyDescriptors.asJava,
       columnFamilyHandles)
+    // Collections are mapped to handles by position, and handles come back in descriptor order: options file
+    // column families first, then all configured ones (the diff above compares Array[Byte] by reference, so it
+    // removes nothing). With an options file, collections therefore don't use the column family of the same name.
+    // Existing databases rely on this mapping, so it must not change. See README.md#rocksdb-options-file.
     (db, columnFamilies.zip(columnFamilyHandles.asScala).toMap)
   } catch {
     case e: Throwable =>
@@ -99,9 +109,17 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
 
   def compactAllData(): Unit = {
     logger.info("Compacting all data")
-    db.compactRange()
+    compactAllColumnFamilies()
     logger.info("All data has been compacted to last level containing data")
   }
+
+  private def compactAllColumnFamilies(): Unit =
+    // A manual compaction skips the bottommost level by default. Forcing it rewrites all files with the
+    // current options (e.g. compression), and drops deleted and overwritten entries there.
+    Using.resource(new CompactRangeOptions().setBottommostLevelCompaction(CompactRangeOptions.BottommostLevelCompaction.kForceOptimized)) { compactRangeOptions =>
+      // The data lives in the named column families, so compact each of them
+      columnFamilyHandles.values.foreach(handle => db.compactRange(handle, null, null, compactRangeOptions))
+    }
 
   def exportToNewDB(newDataDir: Path, newOptionsFilePathOpt: Option[String]): Unit = {
     logger.info(s"Exporting to new DB at ${newDataDir.toString} with options file $newOptionsFilePathOpt")
@@ -114,7 +132,7 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
         }
       }
       logger.info("Writing data completed. Start compaction")
-      newManager.db.compactRange()
+      newManager.compactAllColumnFamilies()
       logger.info("Compaction finished")
     }
   }
@@ -186,6 +204,27 @@ class RocksDBStore(db: RocksDB, handle: ColumnFamilyHandle) extends LazyLogging 
 
   def delete(key: String): Unit = {
     db.delete(handle, RocksDBStore.encodeKey(key))
+  }
+
+  // Collects writes and applies them atomically once the block completes. If the block throws, nothing is written.
+  // An empty batch is skipped, so requests that match nothing don't join a write group.
+  def withWriteBatch[T](block: RocksDBWriteBatch => T): T =
+    Using.resources(new WriteBatch(), new WriteOptions()) { (writeBatch, writeOptions) =>
+      val result = block(new RocksDBWriteBatch(writeBatch, handle))
+      if (writeBatch.count() > 0) db.write(writeOptions, writeBatch)
+      result
+    }
+
+}
+
+class RocksDBWriteBatch(writeBatch: WriteBatch, handle: ColumnFamilyHandle) {
+
+  def put(key: String, value: Array[Byte]): Unit = {
+    writeBatch.put(handle, RocksDBStore.encodeKey(key), value)
+  }
+
+  def delete(key: String): Unit = {
+    writeBatch.delete(handle, RocksDBStore.encodeKey(key))
   }
 
 }
