@@ -32,9 +32,11 @@ class StoreManager(dataDir: Path, backupDir: Path, columnFamilies: List[String],
 
   private val backupInProgress = new AtomicBoolean(false)
   private val restoreInProgress = new AtomicBoolean(false)
+  private val compactionInProgress = new AtomicBoolean(false)
 
   private def failDuringRestore(): Unit = if (restoreInProgress.get) throw new Exception("Unavailable during restore-from-backup operation")
   private def failDuringBackup(): Unit = if (backupInProgress.get) throw new Exception("Unavailable during backup")
+  private def failDuringCompaction(): Unit = if (compactionInProgress.get) throw new Exception("Unavailable during compaction")
 
 
   def backup: Option[BackupInfo] = {
@@ -52,6 +54,7 @@ class StoreManager(dataDir: Path, backupDir: Path, columnFamilies: List[String],
 
   def restoreFromBackup(): Unit = {
     failDuringBackup()
+    failDuringCompaction()
     if (restoreInProgress.compareAndSet(false, true)) {
       try {
         rocksDBManager.get.restoreFromBackup(backupDir)
@@ -67,7 +70,15 @@ class StoreManager(dataDir: Path, backupDir: Path, columnFamilies: List[String],
   def compactAllData(): Unit = {
     failDuringBackup()
     failDuringRestore()
-    rocksDBManager.get.compactAllData()
+    if (compactionInProgress.compareAndSet(false, true)) {
+      try {
+        rocksDBManager.get.compactAllData()
+      } finally {
+        compactionInProgress.set(false)
+      }
+    } else {
+      throw new Exception("Compaction already in progress")
+    }
   }
 
   def exportDB(newDataDir: String, newOptionsFilePathOpt: Option[String]): Unit = {
