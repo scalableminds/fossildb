@@ -50,7 +50,7 @@ class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHel
     storeManager.close
   }
 
-  it should "use the shared block cache for index and filter blocks without a config file" in {
+  it should "use the shared block cache with the configured size without a config file" in {
     val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, None, blockCacheSizeMB = 64)
     val store = storeManager.getStore(collectionA)
     store.put("aKey", 0, Array[Byte](1))
@@ -59,8 +59,10 @@ class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHel
     storeManager.close
 
     val optionsFileContent = new String(Files.readAllBytes(Files.list(dataDir).iterator().asScala.filter(_.getFileName.toString.startsWith("OPTIONS-")).max))
-    assert(optionsFileContent.contains("cache_index_and_filter_blocks=true"))
-    assert(optionsFileContent.contains("pin_l0_filter_and_index_blocks_in_cache=true"))
+    assert(optionsFileContent.contains("cache_index_and_filter_blocks=false"))
+    // The cache capacity is not part of the OPTIONS file, but RocksDB logs it when opening the DB
+    val logContent = new String(Files.readAllBytes(dataDir.resolve("LOG")))
+    assert(logContent.contains("capacity : 64000000"))
   }
 
   it should "fail if specified config file does not exist" in {

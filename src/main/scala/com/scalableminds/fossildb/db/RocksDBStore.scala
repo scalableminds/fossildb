@@ -21,18 +21,12 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
   RocksDB.loadLibrary()
 
   // The native options objects must outlive the DB, they are released in close()
-  // One block cache shared by all column families that use the built-in options. Column families that get their
-  // options from an options file (including those using its "default" column family options) use the table options
-  // from that file instead.
-  // Index and filter blocks are inserted with high priority (the RocksDB default). Reserving half of the cache for
-  // high priority entries keeps them from being evicted by data blocks, as long as they fit into that half.
-  private val blockCache = new LRUCache(blockCacheSizeMB * 1000 * 1000, -1, false, 0.5)
-  private val tableConfig = new BlockBasedTableConfig()
-    .setBlockCache(blockCache)
-    // Keep index and filter blocks in the block cache too, so their memory is bounded by the cache size.
-    // Pinning the L0 ones avoids re-reading them for the newest (most frequently read) files.
-    .setCacheIndexAndFilterBlocks(true)
-    .setPinL0FilterAndIndexBlocksInCache(true)
+  // One block cache for data blocks, shared by all column families that use the built-in options. Column families
+  // that get their options from an options file (including those using its "default" column family options) use the
+  // table options from that file instead.
+  // Index and filter blocks are not kept in this cache (RocksDB default), they are held in memory by each open SST file.
+  private val blockCache = new LRUCache(blockCacheSizeMB * 1000 * 1000)
+  private val tableConfig = new BlockBasedTableConfig().setBlockCache(blockCache)
   private val columnOptions = new ColumnFamilyOptions()
     .setArenaBlockSize(4L * 1024 * 1024) // 4MB
     .setTargetFileSizeBase(1024L * 1024 * 1024) // 1GB
