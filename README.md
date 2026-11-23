@@ -23,5 +23,15 @@ For further options, see `help`:
                            column families of the database (created if there is no db yet)
 ```
 
+## Compression
+SST files are compressed with lz4, and with zstd for the bottommost level, which holds most of the data.
+This applies to column families that are not configured via `--rocksOptionsFile`.
+
+Older FossilDB versions used snappy for all levels. When opening such a database, the existing snappy files
+stay readable and new files use lz4/zstd, so the database contains a mix of both. Old files are only converted
+when a compaction rewrites them, which may never happen for data that isn't written anymore.
+To convert all files at once, call `CompactAllData`. It rewrites the whole database, so it causes heavy
+disk I/O for a while and needs free disk space for the rewritten files. The database stays available meanwhile.
+
 ## API
 FossilDB can be used via its [gRPC API](src/main/protobuf/fossildbapi.proto).
