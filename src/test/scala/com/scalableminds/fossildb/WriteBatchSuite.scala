@@ -21,7 +21,7 @@ class WriteBatchSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHelpe
   override def beforeEach(): Unit = {
     deleteRecursively(new File(testTempDir))
     new File(testTempDir).mkdir()
-    managerOpt = Some(new RocksDBManager(dataDir, List(collectionA), None))
+    managerOpt = Some(new RocksDBManager(dataDir, List(collectionA), None, ConfigDefaults.blockCacheSizeMB))
   }
 
   override def afterEach(): Unit = {

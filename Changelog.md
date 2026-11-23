@@ -1,6 +1,7 @@
 # Changelog
 
 ## Added
+ - New `--blockCacheSizeMB` option (default 512) for a block cache shared by all column families. It does not apply when `--rocksOptionsFile` is set. [#68](https://github.com/scalableminds/fossildb/pull/68)
  - New API endpoints `DeleteAllByPrefix` and `PutMultipleVersions`. [#47](https://github.com/scalableminds/fossildb/pull/47)
  - New API endpoints `GetMultipleKeysByListWithMultipleVersions` and `PutMultipleKeysWithMultipleVersions` for reading and writing multiple keys/versions in one request. [#48](https://github.com/scalableminds/fossildb/pull/48)
  - `ListKeys` now supports optional `prefix` field

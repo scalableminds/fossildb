@@ -47,7 +47,7 @@ class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHel
     val file = new File(testTempDir, "testConfig.ini")
     writeToFile(file, "[Version]\n  rocksdb_version=5.11.3\n  options_file_version=1.1\n\n[DBOptions]\n  stats_dump_period_sec=700\n\n[CFOptions \"default\"]\n\n")
 
-    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, Some(file.getPath))
+    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, Some(file.getPath), ConfigDefaults.blockCacheSizeMB)
 
     val options = new DBOptions()
       .setStatsDumpPeriodSec(100)
@@ -60,8 +60,23 @@ class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHel
     storeManager.close
   }
 
+  it should "use the shared block cache with the configured size without a config file" in {
+    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, None, blockCacheSizeMB = 64)
+    val store = storeManager.getStore(collectionA)
+    store.put("aKey", 0, Array[Byte](1))
+    storeManager.compactAllData()
+    assert(store.withRawRocksIterator(it => store.get(it, "aKey", None)).exists(_.value.sameElements(Array[Byte](1))))
+    storeManager.close
+
+    val optionsFileContent = new String(Files.readAllBytes(Files.list(dataDir).iterator().asScala.filter(_.getFileName.toString.startsWith("OPTIONS-")).max))
+    assert(optionsFileContent.contains("cache_index_and_filter_blocks=false"))
+    // The cache capacity is not part of the OPTIONS file, but RocksDB logs it when opening the DB
+    val logContent = new String(Files.readAllBytes(dataDir.resolve("LOG")))
+    assert(logContent.contains("capacity : 64000000"))
+  }
+
   "CompactAllData" should "compact the data of all column families and drop deleted entries" in {
-    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, None)
+    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, None, ConfigDefaults.blockCacheSizeMB)
     try {
       Seq(collectionA, collectionB).foreach { collection =>
         val store = storeManager.getStore(collection)
@@ -96,7 +111,7 @@ class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHel
     }.get
     assert(sstFileProperties().map(_.getCompressionName) == Seq("NoCompression"))
 
-    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, None)
+    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, None, ConfigDefaults.blockCacheSizeMB)
     try {
       storeManager.compactAllData()
       val store = storeManager.getStore(collectionA)
@@ -109,7 +124,7 @@ class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHel
   }
 
   it should "compress with lz4, and zstd for the bottommost level, without a config file" in {
-    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, None)
+    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, None, ConfigDefaults.blockCacheSizeMB)
     val store = storeManager.getStore(collectionA)
     val value = ("some compressible value " * 100).getBytes
     (0 until 1000).foreach(i => store.put(s"key$i", 0, value))
@@ -142,7 +157,7 @@ class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHel
     }.get
     assert(sstFileProperties().map(_.getCompressionName) == Seq("Snappy"))
 
-    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, None)
+    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, None, ConfigDefaults.blockCacheSizeMB)
     try {
       storeManager.compactAllData()
       val store = storeManager.getStore(collectionA)
@@ -155,7 +170,7 @@ class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHel
 
   it should "fail if specified config file does not exist" in {
     assertThrows[Exception] {
-      new StoreManager(dataDir, backupDir, columnFamilies, Some("nonExistingPath.ini"))
+      new StoreManager(dataDir, backupDir, columnFamilies, Some("nonExistingPath.ini"), ConfigDefaults.blockCacheSizeMB)
     }
   }
 
@@ -164,7 +179,7 @@ class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHel
     writeToFile(file, "[Version]\n  rocksdb_version=5.11.3\n  options_file_version=1.1\n\n[DBOptions]\n  stats_dump_period_sec=700")
 
     assertThrows[Exception] {
-      new StoreManager(dataDir, backupDir, columnFamilies, Some(file.getPath))
+      new StoreManager(dataDir, backupDir, columnFamilies, Some(file.getPath), ConfigDefaults.blockCacheSizeMB)
     }
   }
 
