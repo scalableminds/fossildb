@@ -2,7 +2,7 @@
 
 Versioned Key-Value Store with RocksDB backend and gRPC API
 
-[![CircleCI](https://circleci.com/gh/scalableminds/fossildb.svg?style=svg&circle-token=89b8341a216f2ce9e8f40c913b45196b3694347a)](https://circleci.com/gh/scalableminds/fossildb)
+[![CircleCI](https://dl.circleci.com/status-badge/img/gh/scalableminds/fossildb/tree/master.svg?style=svg)](https://dl.circleci.com/status-badge/redirect/gh/scalableminds/fossildb/tree/master)
 
 ## Installation & Usage
 You can download the [executable jar](https://github.com/scalableminds/fossildb/releases/latest),
