@@ -2,16 +2,17 @@ package com.scalableminds.fossildb
 
 import java.nio.file.Paths
 
-import com.scalableminds.fossildb.db.StoreManager
+import com.scalableminds.fossildb.db.{RocksDBManager, StoreManager}
 import com.typesafe.scalalogging.LazyLogging
 import fossildb.BuildInfo
 
 import scala.concurrent.ExecutionContext
 
-object ConfigDefaults {val port: Int = 7155; val dataDir: String = "data"; val backupDir: String = "backup"; val columnFamilies: List[String] = List(); val rocksOptionsFile: Option[String] = None; val blockCacheSizeMB: Long = 512}
+object ConfigDefaults {val port: Int = 7155; val dataDir: String = "data"; val backupDir: String = "backup"; val columnFamilies: List[String] = List(); val rocksOptionsFile: Option[String] = None; val blockCacheSizeMB: Long = 512; val maxBackgroundJobs: Int = RocksDBManager.defaultMaxBackgroundJobs; val compactionThreads: Int = RocksDBManager.defaultCompactionThreads}
 case class Config(port: Int = ConfigDefaults.port, dataDir: String = ConfigDefaults.dataDir,
                   backupDir: String = ConfigDefaults.backupDir, columnFamilies: List[String] = ConfigDefaults.columnFamilies,
-                  rocksOptionsFile: Option[String] = ConfigDefaults.rocksOptionsFile, blockCacheSizeMB: Long = ConfigDefaults.blockCacheSizeMB)
+                  rocksOptionsFile: Option[String] = ConfigDefaults.rocksOptionsFile, blockCacheSizeMB: Long = ConfigDefaults.blockCacheSizeMB,
+                  maxBackgroundJobs: Option[Int] = None, compactionThreads: Int = ConfigDefaults.compactionThreads)
 
 object FossilDB extends LazyLogging {
   def main(args: Array[String]): Unit = {
@@ -25,7 +26,8 @@ object FossilDB extends LazyLogging {
           logger.info("BuildInfo: (" + BuildInfo + ")")
           logger.info("Config: " + config)
 
-          val storeManager = new StoreManager(Paths.get(config.dataDir), Paths.get(config.backupDir), config.columnFamilies, config.rocksOptionsFile, config.blockCacheSizeMB)
+          val storeManager = new StoreManager(Paths.get(config.dataDir), Paths.get(config.backupDir), config.columnFamilies, config.rocksOptionsFile, config.blockCacheSizeMB,
+            config.maxBackgroundJobs, config.compactionThreads)
 
           val server = new FossilDBServer(storeManager, config.port, ExecutionContext.global)
 
@@ -57,6 +59,14 @@ object FossilDB extends LazyLogging {
       opt[Long]("blockCacheSizeMB").valueName("<MB>").validate(x => if (x > 0) success else failure("blockCacheSizeMB must be positive")).action( (x, c) =>
         c.copy(blockCacheSizeMB = x) ).text("size of the block cache shared by all column families, in MB (10^6 bytes). " +
           "Has no effect if --rocksOptionsFile is set, then the table options from that file apply. Default: " + ConfigDefaults.blockCacheSizeMB)
+
+      opt[Int]("maxBackgroundJobs").valueName("<num>").validate(x => if (x >= 2) success else failure("maxBackgroundJobs must be at least 2")).action( (x, c) =>
+        c.copy(maxBackgroundJobs = Some(x)) ).text("maximum number of concurrent background compactions and flushes (rocksdb max_background_jobs). " +
+          "Overrides the value from --rocksOptionsFile. Default: the value from --rocksOptionsFile if set, else " + ConfigDefaults.maxBackgroundJobs)
+
+      opt[Int]("compactionThreads").valueName("<num>").validate(x => if (x > 0) success else failure("compactionThreads must be positive")).action( (x, c) =>
+        c.copy(compactionThreads = x) ).text("number of files CompactAllData rewrites in parallel. " +
+          "At least one compaction slot is left to automatic compactions. Default: " + ConfigDefaults.compactionThreads)
     }
 
     parser.parse(args, Config())

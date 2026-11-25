@@ -6,6 +6,9 @@ import org.rocksdb._
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path}
 import java.util
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.locks.ReentrantReadWriteLock
+import scala.annotation.nowarn
 import scala.collection.mutable
 import scala.jdk.CollectionConverters.{BufferHasAsJava, ListHasAsScala, SeqHasAsJava}
 import scala.language.postfixOps
@@ -15,8 +18,14 @@ case class BackupInfo(id: Int, timestamp: Long, size: Long)
 
 case class KeyValuePair[T](key: String, value: T)
 
+/**
+ * @param maxBackgroundJobs RocksDB's max_background_jobs. If None, the value from the options file applies, or
+ *                          RocksDBManager.defaultMaxBackgroundJobs without an options file.
+ * @param compactionThreads number of files that compactAllData rewrites in parallel
+ */
 class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePathOpt: Option[String],
-                     blockCacheSizeMB: Long) extends AutoCloseable with LazyLogging {
+                     blockCacheSizeMB: Long, maxBackgroundJobs: Option[Int] = None,
+                     compactionThreads: Int = RocksDBManager.defaultCompactionThreads) extends AutoCloseable with LazyLogging {
 
   RocksDB.loadLibrary()
 
@@ -41,7 +50,11 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
   private val options = new DBOptions()
   private val cfListRef: mutable.Buffer[ColumnFamilyDescriptor] = mutable.Buffer()
 
-  private val (db: RocksDB, columnFamilyHandles) = try {
+  // Set once close() starts. compactAllData holds closeLock for reading while it uses the DB, close() waits for it.
+  private val closing = new AtomicBoolean(false)
+  private val closeLock = new ReentrantReadWriteLock()
+
+  private val (db: RocksDB, columnFamilyHandles, columnFamilyByCollection) = try {
     optionsFilePathOpt.foreach { optionsFilePath =>
       try {
         Using.resource(new ConfigOptions()) { configOptions =>
@@ -54,6 +67,13 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
       }
     }
     options.setCreateIfMissing(true).setCreateMissingColumnFamilies(true)
+    // RocksDB's default of 2 background jobs leaves a single compaction slot for the whole database (the other one is
+    // for flushes). Then a long compaction, e.g. of the bottommost level, blocks all others, level 0 piles up and
+    // RocksDB stalls writes. RocksDB only runs compactions in parallel when they fall behind, so more slots
+    // don't cost anything otherwise.
+    maxBackgroundJobs.orElse(if (optionsFilePathOpt.isEmpty) Some(RocksDBManager.defaultMaxBackgroundJobs) else None)
+      .foreach(options.setMaxBackgroundJobs)
+    logger.info(s"Using max_background_jobs=${options.maxBackgroundJobs()}")
     val defaultColumnFamilyOptions: ColumnFamilyOptions = cfListRef.find(_.getName sameElements RocksDB.DEFAULT_COLUMN_FAMILY).map(_.getOptions).getOrElse(columnOptions)
     val newColumnFamilyDescriptors = (columnFamilies.map(_.getBytes) :+ RocksDB.DEFAULT_COLUMN_FAMILY).diff(cfListRef.toList.map(_.getName)).map(new ColumnFamilyDescriptor(_, defaultColumnFamilyOptions))
     val columnFamilyDescriptors = cfListRef.toList ::: newColumnFamilyDescriptors
@@ -68,7 +88,10 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     // column families first, then all configured ones (the diff above compares Array[Byte] by reference, so it
     // removes nothing). With an options file, collections therefore don't use the column family of the same name.
     // Existing databases rely on this mapping, so it must not change. See README.md#rocksdb-options-file.
-    (db, columnFamilies.zip(columnFamilyHandles.asScala).toMap)
+    val columnFamiliesOfCollections = columnFamilies.zip(columnFamilyDescriptors.zip(columnFamilyHandles.asScala)).map {
+      case (collection, (descriptor, handle)) => collection -> ColumnFamily(collection, handle, descriptor.getOptions)
+    }.toMap
+    (db, columnFamiliesOfCollections.view.mapValues(_.handle).toMap, columnFamiliesOfCollections)
   } catch {
     case e: Throwable =>
       // close() is unreachable if the constructor fails, so release the options here
@@ -107,13 +130,33 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
       Using.resource(BackupEngine.open(Env.getDefault, backupEngineOptions))(block)
     }
 
+  // Number of compactions RocksDB runs at most at the same time (GetBGJobLimits in RocksDB)
+  @nowarn("cat=deprecation")
+  private def compactionSlots: Int =
+    if (options.maxBackgroundCompactions() == -1 && options.maxBackgroundFlushes() == -1)
+      math.max(1, options.maxBackgroundJobs() - math.max(1, options.maxBackgroundJobs() / 4))
+    else math.max(1, options.maxBackgroundCompactions())
+
+  // Rewrites all files in level 1 and below that don't have the current compression, see FileByFileCompaction
   def compactAllData(): Unit = {
-    logger.info("Compacting all data")
-    compactAllColumnFamilies()
-    logger.info("All data has been compacted to last level containing data")
+    // Each file rewrite takes a compaction slot. Leave at least one to automatic compactions, otherwise level 0
+    // piles up and RocksDB stalls writes.
+    val threads = math.max(1, math.min(compactionThreads, compactionSlots - 1))
+    if (compactionSlots - threads < 1)
+      logger.warn(s"There is only $compactionSlots compaction slot (max_background_jobs=${options.maxBackgroundJobs()}). " +
+        "Automatic compactions can't run while CompactAllData rewrites a file, which may stall writes. Increase --maxBackgroundJobs.")
+    else if (threads < compactionThreads)
+      logger.warn(s"Using $threads instead of $compactionThreads compaction threads, to leave a compaction slot to " +
+        s"automatic compactions ($compactionSlots slots with max_background_jobs=${options.maxBackgroundJobs()})")
+    logger.info("Compacting all data, rewriting files with outdated compression one by one")
+    new FileByFileCompaction(db, columnFamilyByCollection.values.toSeq.sortBy(cf => columnFamilies.indexOf(cf.collection)),
+      threads, closing, closeLock).run()
+    logger.info("Compacting all data done")
   }
 
-  private def compactAllColumnFamilies(): Unit =
+  // Compacts everything into the bottommost level in one go. Only for databases without other users, as it
+  // takes compaction slots for a long time.
+  private def compactRangeAllColumnFamilies(): Unit =
     // A manual compaction skips the bottommost level by default. Forcing it rewrites all files with the
     // current options (e.g. compression), and drops deleted and overwritten entries there.
     Using.resource(new CompactRangeOptions().setBottommostLevelCompaction(CompactRangeOptions.BottommostLevelCompaction.kForceOptimized)) { compactRangeOptions =>
@@ -123,7 +166,8 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
 
   def exportToNewDB(newDataDir: Path, newOptionsFilePathOpt: Option[String]): Unit = {
     logger.info(s"Exporting to new DB at ${newDataDir.toString} with options file $newOptionsFilePathOpt")
-    Using.resource(new RocksDBManager(newDataDir, columnFamilies, newOptionsFilePathOpt, blockCacheSizeMB)) { newManager =>
+    Using.resource(new RocksDBManager(newDataDir, columnFamilies, newOptionsFilePathOpt, blockCacheSizeMB, maxBackgroundJobs,
+      compactionThreads)) { newManager =>
       newManager.columnFamilyHandles.foreach { case (name, handle) =>
         val store = getStoreForColumnFamily(name).get
         store.withRawRocksIterator { rocksIt =>
@@ -131,17 +175,29 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
           dataIterator.foreach(el => newManager.db.put(handle, RocksDBStore.encodeKey(el.key), el.value))
         }
       }
+      // Nothing else uses the new database, so a single full compaction is fine. It moves all data to the
+      // bottommost level, which a file-by-file compaction can't do for level 0.
       logger.info("Writing data completed. Start compaction")
-      newManager.compactAllColumnFamilies()
+      newManager.compactRangeAllColumnFamilies()
       logger.info("Compaction finished")
     }
   }
 
   override def close(): Unit = {
     logger.info("Closing RocksDB handle")
-    // Closing is idempotent, so this is safe to call again, e.g. after restoreFromBackup
-    db.close()
-    closeOptions()
+    if (closing.compareAndSet(false, true)) {
+      // Aborts running compactions, including the CompactFiles calls of compactAllData
+      db.cancelAllBackgroundWork(false)
+    }
+    // Wait until compactAllData doesn't use the DB anymore
+    closeLock.writeLock().lock()
+    try {
+      // Closing is idempotent, so this is safe to call again, e.g. after restoreFromBackup
+      db.close()
+      closeOptions()
+    } finally {
+      closeLock.writeLock().unlock()
+    }
   }
 
   private def closeOptions(): Unit = {
@@ -149,6 +205,11 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
     options.close()
     blockCache.close()
   }
+}
+
+object RocksDBManager {
+  val defaultMaxBackgroundJobs: Int = 8
+  val defaultCompactionThreads: Int = 2
 }
 
 class RocksDBKeyIterator(it: RocksIterator, prefix: Option[String]) extends Iterator[String] with LazyLogging {
