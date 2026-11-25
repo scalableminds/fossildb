@@ -2,7 +2,7 @@
 
 from collections import deque
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, QTimer, Signal
+from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, Qt, QTimer, Signal
 from PySide6.QtGui import QGuiApplication, QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -14,14 +14,16 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSplitter,
+    QStyle,
     QTableView,
     QVBoxLayout,
     QWidget,
 )
 
-from fossildb_gui import fmt
-from fossildb_gui.record_view import RecordView
+from fossildb_gui import fmt, settings
+from fossildb_gui.record_view import SPLITTER_HANDLE_WIDTH, RecordView
 from fossildb_gui.tasks import Latest, TaskRunner
+from fossildb_gui.tree import take_list_key
 
 # Small pages show quickly even when the server reads from a slow disk; more are loaded while scrolling
 PAGE_SIZE = 100
@@ -246,6 +248,7 @@ class KeyBrowser(QWidget):
         self._model.status_changed.connect(self._update_status)
         self._table = QTableView()
         self._table.setWordWrap(False)  # otherwise long keys are cut at hyphens instead of at the end
+        self._table.setTabKeyNavigation(False)  # Tab moves to the next control, not to the next cell
         self._table.setModel(self._model)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -285,7 +288,12 @@ class KeyBrowser(QWidget):
         splitter.addWidget(left)
         splitter.addWidget(self.record)
         splitter.setStretchFactor(1, 1)
-        splitter.setSizes([360, 900])
+        splitter.setSizes([self._key_list_width(), 900])
+        splitter.setHandleWidth(SPLITTER_HANDLE_WIDTH)
+        settings.remember_splitter(splitter, "keys")
+        # Arrow keys move between the key list and the version list
+        self._table.installEventFilter(self)
+        self.record.versions_view.installEventFilter(self)
 
         layout = QVBoxLayout(self)
         layout.addWidget(splitter)
@@ -337,6 +345,31 @@ class KeyBrowser(QWidget):
         if key:
             self._table.clearSelection()
             self.record.show_key(key)
+
+    # Typical keys, e.g. of WEBKNOSSOS, are UUIDs, which should fit without being shortened
+    TYPICAL_KEY = "00000000-5813-8649-5500-00a6004814b0"
+
+    def _key_list_width(self) -> int:
+        table = self._table
+        key = table.fontMetrics().horizontalAdvance(self.TYPICAL_KEY) + 16  # plus the cell's margins
+        scroll_bar = table.style().pixelMetric(QStyle.PixelMetric.PM_ScrollBarExtent)
+        return key + table.columnWidth(1) + scroll_bar + 2 * table.frameWidth() + 8
+
+    def eventFilter(self, watched, event) -> bool:
+        if event.type() == QEvent.Type.KeyPress and not event.modifiers():
+            if watched is self._table and event.key() == Qt.Key.Key_Right and self.record.focus_versions():
+                return True
+            if watched is self.record.versions_view and event.key() == Qt.Key.Key_Left:
+                self._table.setFocus()
+                return True
+        return super().eventFilter(watched, event)
+
+    def take_list_key(self, event) -> bool:
+        """Handles an arrow key that no other widget used: moves the focus to the list, and selects its first row if
+        none is selected yet, or else moves the selection. False if there is no list."""
+        if not self._model.keys:
+            return False
+        return take_list_key(self._table, event)
 
     def _prefetch(self) -> None:
         last_visible = self._table.rowAt(self._table.viewport().height() - 1)

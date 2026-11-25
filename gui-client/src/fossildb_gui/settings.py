@@ -5,7 +5,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field, replace
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QByteArray, QSettings, QTimer
 
 MAX_RECENT = 15
 
@@ -137,3 +137,35 @@ def set_message_type_for(collection: str, message_type: str) -> None:
         _set(f"messageTypes/{collection}", message_type)
     else:
         _set(f"messageTypes/{collection}", None)
+
+
+def decimal_sizes() -> bool:
+    """Whether sizes are shown in decimal units (GB), else binary ones (GiB)."""
+    return _get("sizeUnits", "decimal") != "binary"
+
+
+def set_decimal_sizes(decimal: bool) -> None:
+    _set("sizeUnits", "decimal" if decimal else "binary")
+
+
+def window_geometry() -> QByteArray | None:
+    value = _get("windowGeometry", "")
+    return QByteArray.fromBase64(value.encode()) if value else None
+
+
+def set_window_geometry(geometry: QByteArray) -> None:
+    _set("windowGeometry", bytes(geometry.toBase64()).decode())
+
+
+def remember_splitter(splitter, name: str) -> None:
+    """Restores the splitter's sizes, and saves them shortly after the user dragged it."""
+    value = _get(f"splitters/{name}", "")
+    if value:
+        # The saved state includes the handle width, which the code decides, not the saved state
+        handle_width = splitter.handleWidth()
+        splitter.restoreState(QByteArray.fromBase64(value.encode()))
+        splitter.setHandleWidth(handle_width)
+    # Saving on every mouse move would write the settings file many times per second
+    timer = QTimer(splitter, singleShot=True, interval=500)
+    timer.timeout.connect(lambda: _set(f"splitters/{name}", bytes(splitter.saveState().toBase64()).decode()))
+    splitter.splitterMoved.connect(lambda *_: timer.start())

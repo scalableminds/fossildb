@@ -1,5 +1,8 @@
 """Blocking access to a FossilDB server. All calls are meant to run in background threads (see tasks.py)."""
 
+import socket
+import threading
+
 import grpc
 
 from fossildb_gui.api import pb, pb_grpc
@@ -32,12 +35,34 @@ class Connection:
         )
         self._stub = pb_grpc.FossilDBStub(self._channel)
 
-    def check_health(self) -> None:
+    def check_health(self, timeout: float = CONNECT_TIMEOUT_SECONDS) -> None:
+        state = self._wait_for_channel(timeout)
+        if state == grpc.ChannelConnectivity.TRANSIENT_FAILURE:
+            if self.tunnel is not None:
+                reason = self.tunnel.last_error() or "the connection failed"
+                raise FossilDBError(f"{self.label}: not reachable from {self.tunnel.ssh_host} ({reason})")
+            raise FossilDBError(f"{self.label} accepted the connection, but did not answer like FossilDB. Is the port right?")
+        if state != grpc.ChannelConnectivity.READY:
+            raise FossilDBError(f"No answer from FossilDB at {self.label} within {timeout:g} seconds")
+        self._call("Health", pb.HealthRequest(), timeout)
+
+    def _wait_for_channel(self, timeout: float) -> grpc.ChannelConnectivity | None:
+        """Waits until the channel is ready or its first connection attempt failed. gRPC itself would keep retrying
+        until the timeout, even when the connection was refused right away."""
+        result: list[grpc.ChannelConnectivity] = []
+        done = threading.Event()
+
+        def watch(state: grpc.ChannelConnectivity) -> None:
+            if state in (grpc.ChannelConnectivity.READY, grpc.ChannelConnectivity.TRANSIENT_FAILURE):
+                result.append(state)
+                done.set()
+
+        self._channel.subscribe(watch, try_to_connect=True)
         try:
-            grpc.channel_ready_future(self._channel).result(timeout=CONNECT_TIMEOUT_SECONDS)
-        except grpc.FutureTimeoutError:
-            raise FossilDBError(f"Could not reach FossilDB at {self.label}") from None
-        self._call("Health", pb.HealthRequest(), CONNECT_TIMEOUT_SECONDS)
+            done.wait(timeout)
+        finally:
+            self._channel.unsubscribe(watch)
+        return result[0] if result else None
 
     def close(self) -> None:
         self._channel.close()
@@ -112,6 +137,7 @@ def connect(address: str, ssh_host: str | None = None) -> Connection:
         local_port = tunnel.start()
         connection = Connection(f"127.0.0.1:{local_port}", f"{address} via {ssh_host}", tunnel)
     else:
+        _check_reachable(address)
         connection = Connection(address, address)
     try:
         connection.check_health()
@@ -119,3 +145,34 @@ def connect(address: str, ssh_host: str | None = None) -> Connection:
         connection.close()
         raise
     return connection
+
+
+def _check_reachable(address: str, timeout: float = CONNECT_TIMEOUT_SECONDS) -> None:
+    """Opens and closes a plain network connection, which tells right away why a server can't be reached."""
+    host, _, port = address.rpartition(":")
+    host = host.strip("[]")  # IPv6, e.g. [::1]:7155
+    if not host or not port.isdigit():
+        raise FossilDBError(f"Expected the FossilDB address as host:port, got {address}")
+    try:
+        with socket.create_connection((host, int(port)), timeout=timeout):
+            pass
+    except socket.gaierror:
+        raise FossilDBError(f"Unknown host {host}") from None
+    except ConnectionRefusedError:
+        raise FossilDBError(f"Nothing is listening at {address} (connection refused). Is FossilDB running there?") from None
+    except TimeoutError:
+        raise FossilDBError(f"No answer from {address} within {timeout:g} seconds") from None
+    except OSError as e:
+        raise FossilDBError(f"Could not reach {address}: {e.strerror or e}") from None
+
+
+def probe(address: str, timeout: float) -> None:
+    """Raises FossilDBError unless a FossilDB server answers at address (host:port) within the timeout."""
+    _check_reachable(address, timeout)
+    connection = Connection(address, address)
+    try:
+        connection.check_health(timeout)
+    except NotSupportedError:
+        raise FossilDBError(f"{address} is a gRPC server, but not FossilDB") from None
+    finally:
+        connection.close()

@@ -78,6 +78,14 @@ def test_browse_keys_and_values(window):
 
     record._versions_view.setCurrentIndex(record._versions_model.index(1))
     wait_until(lambda: record._structure_model.rowCount() == 7)
+    # Expand and collapse all; field 5 is a nested message
+    view, model = record._structure_view, record._structure_model
+    record._structure_expand_button.click()
+    assert view.isExpanded(model.index(4, 0))
+    record._structure_collapse_button.click()
+    assert not view.isExpanded(model.index(4, 0))
+    # Loaded values show their size in the version list
+    assert record._versions_model.stringList() == ["1  ·  2 B", f"0  ·  {len(MESSAGE)} B"]
     assert record._tabs.currentIndex() == record._structure_tab
     assert record._tabs.isTabEnabled(record._structure_tab) and record._tabs.isTabEnabled(record._typed_tab)
 
@@ -178,10 +186,10 @@ def test_measure_total_key_size(window, monkeypatch):
     record._measure_button.click()
     wait_until(lambda: not record._measuring)
     assert record._sizes == {version: 1000 + version for version in range(40)}
-    assert "Total: 39.8 KiB" in record._measure_label.text()
-    assert "largest 1.0 KiB (version 39)" in record._measure_label.text()
+    assert "Total: 40.8 kB" in record._measure_label.text()
+    assert "largest 1.0 kB (version 39)" in record._measure_label.text()
     assert fake.multiple_versions_requests - requests_before > 2
-    assert record._versions_model.stringList()[0] == "39  ·  1.0 KiB"
+    assert record._versions_model.stringList()[0] == "39  ·  1.0 kB"
 
     # Stopping keeps what was measured so far
     record._measure_button.click()
@@ -268,12 +276,12 @@ def test_overview_columns(qt_app):
         estimatedPendingCompactionBytes=3 << 30,
     )  # fmt: skip
     assert overview._warnings(small) == []
-    assert overview._warnings(big) == ["⏳ 3.0 GiB to compact", "⚠ 20 deletions"]
+    assert overview._warnings(big) == ["⏳ 3.2 GB to compact", "⚠ 20 deletions"]
     assert "a&lt;b" in overview._details(small)
     summary = overview.summary_text(big, "production (db:7155)").splitlines()
     assert summary[0].startswith("big on production (db:7155), ")
-    assert "  On disk:            1000 B" in summary
-    assert summary[-1] == "  Status:             ⏳ 3.0 GiB to compact   ⚠ 20 deletions"
+    assert "  On disk:            1.0 kB" in summary
+    assert summary[-1] == "  Status:             ⏳ 3.2 GB to compact   ⚠ 20 deletions"
 
     widget = overview.OverviewWidget(ConnectionSpec("x:1"))
     widget.set_info(pb.DatabaseInfoProto(collections=[small, big]))
@@ -338,3 +346,378 @@ def test_auto_refresh(window):
     time.sleep(0.2)
     QApplication.processEvents()
     assert fake.info_requests <= stopped_at + 1  # at most one that was already on its way
+
+
+def test_ctrl_tab_switches_tabs(window):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    _, window = window
+    browser = open_collection(window)
+    window.open_collection("collectionB")
+    tabs = window._tabs
+    assert tabs.count() == 3 and tabs.currentIndex() == 2
+    window.activateWindow()
+    wait_until(lambda: QApplication.activeWindow() is window)
+    ctrl = Qt.KeyboardModifier.ControlModifier
+    shift = Qt.KeyboardModifier.ShiftModifier
+    # Wraps around, and works while widgets that use Tab themselves have the focus
+    focused = tabs.currentWidget()._table
+    focused.setFocus()
+    QTest.keyClick(focused, Qt.Key.Key_Tab, ctrl)
+    assert tabs.currentIndex() == 0
+    browser.record._json.setFocus()
+    QTest.keyClick(window._overview._table, Qt.Key.Key_Tab, ctrl)
+    assert tabs.currentIndex() == 1
+    browser.record._json.setFocus()
+    QTest.keyClick(browser.record._json, Qt.Key.Key_Backtab, ctrl | shift)
+    assert tabs.currentIndex() == 0
+    QTest.keyClick(window._overview._table, Qt.Key.Key_Backtab, ctrl | shift)
+    assert tabs.currentIndex() == 2
+
+
+def test_window_geometry_is_remembered(qt_app, current_server):
+    from fossildb_gui import settings
+
+    _, address = current_server
+    runner = TaskRunner()
+
+    def new_window():
+        connection = connect(address)
+        return MainWindow(ConnectionSpec(address), connection, connection.database_info(), runner, SchemaManager(runner))
+
+    settings._set("windowGeometry", None)
+    first = new_window()
+    available = first.screen().availableGeometry()
+    assert abs(first.width() - available.width() * 0.8) <= 1
+    first.show()
+    # A second window does not cover the first one
+    second = new_window()
+    assert second.pos() != first.pos()
+    second.close()
+    # The offscreen test screen is narrower than the window's minimum width, so only the height can change
+    first.resize(first.width(), 500)
+    first.close()
+    QApplication.processEvents()
+    third = new_window()
+    assert third.height() == 500
+    third.close()
+
+
+def test_splitter_is_remembered(qt_app):
+    from PySide6.QtWidgets import QLabel, QSplitter
+
+    from fossildb_gui import settings
+
+    settings._set("splitters/test", None)
+
+    def splitter():
+        widget = QSplitter()
+        widget.addWidget(QLabel("a"))
+        widget.addWidget(QLabel("b"))
+        widget.resize(400, 100)
+        widget.setSizes([300, 100])
+        settings.remember_splitter(widget, "test")
+        return widget
+
+    first = splitter()
+    first.show()
+    first.setSizes([100, 300])
+    first.splitterMoved.emit(100, 1)
+    wait_until(lambda: settings._get("splitters/test", ""))
+    second = splitter()
+    second.show()
+    QApplication.processEvents()
+    assert second.sizes()[0] < second.sizes()[1]
+    # A handle width set in the code wins over the one in the saved state
+    third = QSplitter()
+    third.addWidget(QLabel("a"))
+    third.addWidget(QLabel("b"))
+    third.setHandleWidth(9)
+    settings.remember_splitter(third, "test")
+    assert third.handleWidth() == 9
+
+
+def test_uuid_keys_fit(window):
+    from fossildb_gui import settings
+
+    fake, window = window
+    settings._set("splitters/keys", None)
+    key = "00000000-5813-8649-5500-00a6004814b0"
+    fake.put("collectionA", key, 0, b"x")
+    window.resize(1400, 800)  # the offscreen screen would be too narrow
+    browser = open_collection(window)
+    QApplication.processEvents()
+    table = browser._table
+    assert table.columnWidth(0) >= table.fontMetrics().horizontalAdvance(key) + 8
+
+
+def test_enter_connects(qt_app):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    from fossildb_gui import settings
+    from fossildb_gui.connect_dialog import ConnectDialog
+
+    settings._set("recentConnections", None)
+    settings.add_recent_connection(ConnectionSpec("db:7155"))
+    runner = TaskRunner()
+    for field in ("_address", "_name", "_ssh_host", "_recent"):
+        dialog = ConnectDialog(runner)
+        calls = []
+        dialog._connect = calls.append
+        dialog._tunnel.setChecked(True)
+        dialog._ssh_host.setText("jump")
+        dialog.show()
+        QTest.keyClick(getattr(dialog, field), Qt.Key.Key_Return)
+        expected = ConnectionSpec("db:7155") if field == "_recent" else ConnectionSpec("db:7155", "jump")
+        assert calls == [expected], field
+        dialog.reject()
+
+
+def test_arrow_keys_move_to_the_list(window):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    fake, window = window
+    window.activateWindow()
+    wait_until(lambda: QApplication.activeWindow() is window)
+    overview = window._overview
+    opened = []
+    overview.open_collection.connect(opened.append)
+    # E.g. after clicking a tab, the tab bar has the focus, which doesn't use the Down key
+    tab_bar = window._tabs.tabBar()
+    tab_bar.setFocus()
+    QTest.keyClick(tab_bar, Qt.Key.Key_Down)
+    if fake.legacy:  # no list to move to
+        assert QApplication.focusWidget() is tab_bar
+        return
+    table = overview._table
+    assert QApplication.focusWidget() is table and table.selectionModel().selectedRows()[0].row() == 0
+    QTest.keyClick(table, Qt.Key.Key_Down)
+    QTest.keyClick(table, Qt.Key.Key_Return)
+    assert opened == [table.model().index(1, 0).data()]
+
+    # The same in a collection tab, where the first key is selected, and then the next one
+    browser = open_collection(window)
+    tab_bar.setFocus()
+    QTest.keyClick(tab_bar, Qt.Key.Key_Down)
+    assert QApplication.focusWidget() is browser._table and browser._table.currentIndex().row() == 0
+    tab_bar.setFocus()
+    QTest.keyClick(tab_bar, Qt.Key.Key_Down)
+    assert browser._table.currentIndex().row() == 1
+
+
+@pytest.mark.parametrize("single_click", [True, False])
+def test_choosing_a_recent_connection(qt_app, single_click):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QDialogButtonBox, QProxyStyle, QStyle
+
+    from fossildb_gui import settings
+    from fossildb_gui.connect_dialog import ConnectDialog
+
+    class ClickStyle(QProxyStyle):
+        def styleHint(self, hint, option=None, widget=None, data=None):
+            if hint == QStyle.StyleHint.SH_ItemView_ActivateItemOnSingleClick:
+                return int(single_click)
+            return super().styleHint(hint, option, widget, data)
+
+    settings._set("recentConnections", None)
+    for address in ("c:3", "b:2", "a:1"):
+        settings.add_recent_connection(ConnectionSpec(address))
+    dialog = ConnectDialog(TaskRunner())
+    calls = []
+    dialog._connect = calls.append
+    style = ClickStyle("fusion")
+    dialog._recent.setStyle(style)
+    dialog.show()
+    assert dialog._connect_button.isDefault()
+    assert not dialog._buttons.button(QDialogButtonBox.StandardButton.Cancel).isDefault()
+
+    viewport = dialog._recent.viewport()
+    second = dialog._recent.visualItemRect(dialog._recent.item(1)).center()
+    QTest.mouseClick(viewport, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, second)
+    assert calls == [] and dialog._address.text() == "b:2"
+    QTest.keyClick(dialog._recent, Qt.Key.Key_Down)
+    assert calls == [] and dialog._address.text() == "c:3"
+    QTest.mouseDClick(viewport, Qt.MouseButton.RightButton, Qt.KeyboardModifier.NoModifier, second)
+    QTest.mouseDClick(viewport, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, second)
+    assert calls == [ConnectionSpec("b:2")]
+    # Enter connects to the current one (QTest's double-click alone doesn't change it, a real one would)
+    QTest.keyClick(dialog._recent, Qt.Key.Key_Return)
+    assert calls == [ConnectionSpec("b:2"), ConnectionSpec("c:3")]
+    dialog.reject()
+
+
+@pytest.mark.parametrize("field", ["_recent", "_address"])
+def test_focus_returns_after_failed_connect(qt_app, field):
+    import socket
+
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    from fossildb_gui import settings
+    from fossildb_gui.connect_dialog import ConnectDialog
+
+    closed = socket.create_server(("127.0.0.1", 0))
+    address = f"127.0.0.1:{closed.getsockname()[1]}"
+    closed.close()
+    settings._set("recentConnections", None)
+    settings.add_recent_connection(ConnectionSpec(address))
+    dialog = ConnectDialog(TaskRunner())
+    dialog.show()
+    dialog.activateWindow()
+    wait_until(lambda: QApplication.activeWindow() is dialog)
+    widget = getattr(dialog, field)
+    widget.setFocus()
+    QTest.keyClick(widget, Qt.Key.Key_Return)
+    wait_until(lambda: "Connection failed" in dialog._status.text())
+    assert QApplication.focusWidget() is widget
+    dialog.reject()
+
+
+def test_overview_totals(qt_app):
+    from fossildb_gui import overview
+    from fossildb_gui.api import pb
+
+    def collection(name, disk, raw, versions):
+        return pb.CollectionInfoProto(
+            name=name, columnFamily=name, liveSstFilesBytes=disk, rawKeyBytes=raw // 10, rawValueBytes=raw - raw // 10,
+            estimatedVersionCount=versions,
+        )  # fmt: skip
+
+    widget = overview.OverviewWidget(ConnectionSpec("x:1"))
+    widget.set_info(pb.DatabaseInfoProto(collections=[collection("a", 1 << 30, 5 << 30, 30_000_000), collection("b", 0, 0, 400_000)]))
+    assert widget._labels["Collections"].text() == "2 with ~30.4 M versions"
+    assert widget._labels["Size"].text() == "1.1 GB on disk, 5.4 GB uncompressed (5.0×)"
+
+
+def test_connect_dialog_checks_and_finds_servers(qt_app, monkeypatch):
+    import socket
+
+    from fossildb_gui import discovery, settings
+    from fossildb_gui.connect_dialog import ConnectDialog
+
+    from conftest import FakeFossilDB, _serve
+
+    servers = [_serve(FakeFossilDB()) for _ in range(2)]
+    (_, known), (_, local) = servers
+    closed = socket.create_server(("127.0.0.1", 0))
+    unreachable = f"127.0.0.1:{closed.getsockname()[1]}"
+    closed.close()
+    local_port = int(local.rpartition(":")[2])
+    known_port = int(known.rpartition(":")[2])
+    # Both servers listen on this computer, but the known one is in the recent connections already
+    monkeypatch.setattr(discovery, "listening_local_ports", lambda: {local_port, known_port})
+    settings._set("recentConnections", None)
+    settings.add_recent_connection(ConnectionSpec(unreachable))
+    settings.add_recent_connection(ConnectionSpec(known.replace("127.0.0.1", "localhost")))
+    settings.add_recent_connection(ConnectionSpec("db:7155", "jump"))
+
+    dialog = ConnectDialog(TaskRunner())
+    items = lambda: [dialog._recent.item(row) for row in range(dialog._recent.count())]  # noqa: E731
+    wait_until(lambda: dialog._recent.count() == 5 and all(item.toolTip() for item in items()[1:3]))
+    texts = [item.text() for item in items()]
+    assert texts == ["db:7155 via jump", known.replace("127.0.0.1", "localhost"), unreachable, "On this computer", f"localhost:{local_port}"]
+    assert items()[0].toolTip() == ""  # tunnels are not checked
+    assert items()[1].toolTip() == "FossilDB answers"
+    assert items()[2].toolTip().startswith("Not reachable: Nothing is listening")
+    dialog.reject()
+    for server, _ in servers:
+        server.stop(None)
+
+
+def test_size_units(window):
+    from fossildb_gui import fmt, main_window, settings
+
+    fake, window = window
+    assert fmt.size(1_500_000) == "1.5 MB"
+    fake.put("collectionA", "big", 0, bytes(1500))
+    browser = open_collection(window)
+    record = browser.record
+    record.show_key("big")
+    wait_until(lambda: record._versions_model.stringList() == ["0  ·  1.5 kB"])
+    assert "1.5 kB" in record._value_label.text()
+
+    main_window._set_size_units(False)
+    assert settings.decimal_sizes() is False and window._binary_action.isChecked()
+    assert record._versions_model.stringList() == ["0  ·  1.5 KiB"]
+    wait_until(lambda: "1.5 KiB" in record._value_label.text())
+    if not fake.legacy:
+        assert window._overview._labels["Size"].text().startswith("2.0 KiB on disk")
+
+
+def test_arrow_keys_between_keys_and_versions(window):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    _, window = window
+    browser = open_collection(window)
+    window.activateWindow()
+    wait_until(lambda: QApplication.activeWindow() is window)
+    table, versions = browser._table, browser.record.versions_view
+    table.setFocus()
+    table.selectRow(0)
+    wait_until(lambda: browser.record._versions == [1, 0])
+    QTest.keyClick(table, Qt.Key.Key_Right)
+    assert QApplication.focusWidget() is versions and versions.currentIndex().row() == 0
+    QTest.keyClick(versions, Qt.Key.Key_Down)
+    assert versions.currentIndex().row() == 1
+    QTest.keyClick(versions, Qt.Key.Key_Left)
+    assert QApplication.focusWidget() is table and table.currentIndex().row() == 0
+    # The chosen version stays when going back and forth
+    QTest.keyClick(table, Qt.Key.Key_Right)
+    assert versions.currentIndex().row() == 1
+
+
+def test_tab_leaves_the_tables(window):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    fake, window = window
+    browser = open_collection(window)
+    window.activateWindow()
+    wait_until(lambda: QApplication.activeWindow() is window)
+    tables = [(browser, browser._table)] + ([] if fake.legacy else [(window._overview, window._overview._table)])
+    for tab, table in tables:
+        window._tabs.setCurrentWidget(tab)
+        table.setFocus()
+        table.setCurrentIndex(table.model().index(0, 0))
+        QTest.keyClick(table, Qt.Key.Key_Tab)
+        assert QApplication.focusWidget() is not table
+        table.setFocus()
+        QTest.keyClick(table, Qt.Key.Key_Backtab, Qt.KeyboardModifier.ShiftModifier)
+        assert QApplication.focusWidget() is not table
+
+
+def test_arrow_keys_at_the_ends_of_lists(window, capfd):
+    """Keys that a list doesn't use, e.g. Up in its first row, must not be sent back to it."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    fake, window = window
+    window.activateWindow()
+    wait_until(lambda: QApplication.activeWindow() is window)
+    browser = open_collection(window)
+    views = [(browser, browser._table)] + ([] if fake.legacy else [(window._overview, window._overview._table)])
+    for tab, view in views:
+        window._tabs.setCurrentWidget(tab)
+        view.setFocus()
+        view.setCurrentIndex(view.model().index(0, 0))
+        for key in (Qt.Key.Key_Up, Qt.Key.Key_PageUp):
+            QTest.keyClick(view, key)
+        assert view.currentIndex().row() == 0
+    # PySide only logs errors in event handlers, so the test looks for them in the output
+    assert "RecursionError" not in capfd.readouterr().err
+
+
+def test_tree_model_column_tooltips(qt_app):
+    from PySide6.QtCore import Qt
+
+    from fossildb_gui.tree import Node, TreeModel, root_node
+
+    model = TreeModel(["a", "b"])
+    model.set_root(root_node([Node(("x", "y"), tooltip="row", column_tooltips={1: "cell"})]))
+    assert model.index(0, 0).data(Qt.ItemDataRole.ToolTipRole) == "row"
+    assert model.index(0, 1).data(Qt.ItemDataRole.ToolTipRole) == "cell"

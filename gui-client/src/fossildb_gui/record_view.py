@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
 from fossildb_gui import decoding, fmt, settings, wire
 from fossildb_gui.schema_manager import SchemaManager
 from fossildb_gui.tasks import Latest, TaskRunner
-from fossildb_gui.tree import TreeModel, root_node
+from fossildb_gui.tree import MAX_CHILDREN, PaddedDelegate, TreeModel, root_node
 
 HEX_DUMP_LIMIT = 256 * 1024
 TEXT_LIMIT = 1024 * 1024
@@ -44,6 +44,18 @@ _NO_TYPE = "(none)"
 
 def _sanitize_filename(name: str) -> str:
     return re.sub(r"[^-\w.]", "_", name.strip().replace(" ", "_"))
+
+
+def _add_expand_buttons(layout: QHBoxLayout, view: QTreeView) -> tuple[QToolButton, QToolButton]:
+    """Adds "Expand all" and "Collapse all" for the tree view."""
+    expand = QToolButton(text="Expand all")
+    expand.setToolTip(f"Long lists show their first {fmt.count(MAX_CHILDREN)} items")
+    expand.clicked.connect(view.expandAll)
+    collapse = QToolButton(text="Collapse all")
+    collapse.clicked.connect(view.collapseAll)
+    layout.addWidget(expand)
+    layout.addWidget(collapse)
+    return expand, collapse
 
 
 def _tree_view(model: TreeModel, widths: list[int]) -> QTreeView:
@@ -135,6 +147,9 @@ def _decode_typed(data: bytes, message_class):
     return decoding.message_nodes(message), note
 
 
+# Wide splitter handles leave space between the panels, and all of that space can be dragged
+SPLITTER_HANDLE_WIDTH = 9
+
 # Measuring the total size downloads all versions, in requests of about this size
 MEASURE_TARGET_BYTES = 16 << 20
 MEASURE_FIRST_REQUEST_VERSIONS = 16
@@ -160,6 +175,7 @@ class RecordView(QWidget):
         self._user_chose_tab = False
         self._reselect: int | None = None  # version to select after reloading
         self._sizes: dict[int, int] = {}  # measured value size per version
+        self._shown_sizes: dict[int, int] = {}  # sizes in the version list, measured or of loaded values
         self._latest_measure = Latest()
         self._measuring = False
 
@@ -211,12 +227,19 @@ class RecordView(QWidget):
         actions.addWidget(self._delete_version_button)
         actions.addWidget(self._delete_key_button)
 
-        self._structure_model = TreeModel(decoding.WIRE_HEADERS, parent=self)
-        self._structure_view = _tree_view(self._structure_model, [180, 200, 280])
+        self._structure_model = TreeModel(decoding.WIRE_HEADERS, parent=self, right_aligned=(decoding.SIZE_COLUMN,))
+        self._structure_view = _tree_view(self._structure_model, [180, 120, 80, 280])
+        self._structure_view.setItemDelegateForColumn(decoding.SIZE_COLUMN, PaddedDelegate(self._structure_view))
         self._structure_note = QLabel()
         self._structure_note.setWordWrap(True)
         structure_tab = QWidget()
         structure_layout = QVBoxLayout(structure_tab)
+        structure_bar = QHBoxLayout()
+        self._structure_expand_button, self._structure_collapse_button = _add_expand_buttons(
+            structure_bar, self._structure_view
+        )
+        structure_bar.addStretch()
+        structure_layout.addLayout(structure_bar)
         structure_layout.addWidget(self._structure_note)
         structure_layout.addWidget(self._structure_view)
 
@@ -225,8 +248,9 @@ class RecordView(QWidget):
         self._type_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         self._type_combo.setMinimumContentsLength(30)
         self._type_combo.activated.connect(self._type_chosen)
-        self._typed_model = TreeModel(decoding.TYPED_HEADERS, parent=self)
-        self._typed_view = _tree_view(self._typed_model, [240, 240])
+        self._typed_model = TreeModel(decoding.TYPED_HEADERS, parent=self, right_aligned=(decoding.SIZE_COLUMN,))
+        self._typed_view = _tree_view(self._typed_model, [240, 200, 80])
+        self._typed_view.setItemDelegateForColumn(decoding.SIZE_COLUMN, PaddedDelegate(self._typed_view))
         self._typed_note = QLabel()
         self._typed_note.setWordWrap(True)
         typed_tab = QWidget()
@@ -234,6 +258,8 @@ class RecordView(QWidget):
         type_row = QHBoxLayout()
         type_row.addWidget(QLabel(f"Message type for {collection}:"))
         type_row.addWidget(self._type_combo, stretch=1)
+        type_row.addSpacing(12)
+        _add_expand_buttons(type_row, self._typed_view)
         typed_layout.addLayout(type_row)
         typed_layout.addWidget(self._typed_note)
         typed_layout.addWidget(self._typed_view)
@@ -262,15 +288,10 @@ class RecordView(QWidget):
         self._json_tree_button = QToolButton(text="Tree", checkable=True, checked=True, autoExclusive=True)
         self._json_raw_button = QToolButton(text="Raw", checkable=True, autoExclusive=True)
         self._json_tree_button.toggled.connect(self._json_mode_changed)
-        self._json_expand_button = QToolButton(text="Expand all")
-        self._json_expand_button.clicked.connect(self._json_tree.expandAll)
-        self._json_collapse_button = QToolButton(text="Collapse all")
-        self._json_collapse_button.clicked.connect(self._json_tree.collapseAll)
         for widget in (self._json_tree_button, self._json_raw_button):
             json_bar.addWidget(widget)
         json_bar.addSpacing(12)
-        json_bar.addWidget(self._json_expand_button)
-        json_bar.addWidget(self._json_collapse_button)
+        self._json_expand_button, self._json_collapse_button = _add_expand_buttons(json_bar, self._json_tree)
         json_bar.addStretch()
         json_tab = QWidget()
         json_layout = QVBoxLayout(json_tab)
@@ -308,6 +329,8 @@ class RecordView(QWidget):
         splitter.addWidget(value_panel)
         splitter.setStretchFactor(1, 1)
         splitter.setSizes([160, 800])
+        splitter.setHandleWidth(SPLITTER_HANDLE_WIDTH)
+        settings.remember_splitter(splitter, "versions")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -340,6 +363,7 @@ class RecordView(QWidget):
         self._latest_measure.invalidate()
         self._set_measuring(False)
         self._sizes = {}
+        self._shown_sizes = {}
         self._measure_label.setText("")
         self._measure_button.setEnabled(False)
         generation = self._latest_versions.next()
@@ -419,12 +443,9 @@ class RecordView(QWidget):
         )
 
     def _measured(self, generation: int, next_start: int, sizes: list[tuple[int, int]]) -> None:
-        rows = {version: row for row, version in enumerate(self._versions)}
         for version, size in sizes:
             self._sizes[version] = size
-            if version in rows:
-                index = self._versions_model.index(rows[version])
-                self._versions_model.setData(index, f"{version}  ·  {fmt.size(size)}")
+        self._show_version_sizes(sizes)
         if next_start >= len(self._versions):
             self._set_measuring(False)
             self._measure_label.setText(self._measured_text())
@@ -434,6 +455,36 @@ class RecordView(QWidget):
         average = sum(size for _, size in sizes) / len(sizes) if sizes else 0
         count = int(MEASURE_TARGET_BYTES / average) if average else MEASURE_MAX_REQUEST_VERSIONS
         self._measure_from(generation, next_start, max(1, min(count, MEASURE_MAX_REQUEST_VERSIONS)))
+
+    def _show_version_sizes(self, sizes: list[tuple[int, int]]) -> None:
+        """Adds the sizes to the version list, e.g. "7  ·  1.2 kB"."""
+        rows = {version: row for row, version in enumerate(self._versions)}
+        for version, size in sizes:
+            self._shown_sizes[version] = size
+            if version in rows:
+                self._versions_model.setData(self._versions_model.index(rows[version]), f"{version}  ·  {fmt.size(size)}")
+
+    @property
+    def versions_view(self) -> QListView:
+        return self._versions_view
+
+    def focus_versions(self) -> bool:
+        """Moves the keyboard focus to the version list, keeping the selected version. False if there are none yet."""
+        if not self._versions:
+            return False
+        if not self._versions_view.currentIndex().isValid():
+            self._versions_view.setCurrentIndex(self._versions_model.index(0))
+        self._versions_view.setFocus()
+        return True
+
+    def redisplay(self) -> None:
+        """Shows everything again, e.g. with other size units."""
+        self._show_version_sizes(list(self._shown_sizes.items()))
+        label = self._measure_label.text()
+        if not self._measuring and self._sizes and not label.startswith("Measuring failed"):
+            self._measure_label.setText(("Stopped. " if label.startswith("Stopped") else "") + self._measured_text())
+        if self._version is not None:
+            self._load_value()  # from the cache; decoding again also updates the sizes in the trees
 
     def _measured_text(self) -> str:
         total = sum(self._sizes.values())
@@ -493,7 +544,8 @@ class RecordView(QWidget):
         while len(self._values) > _CACHED_VALUES:
             self._values.popitem(last=False)
         self._download_button.setEnabled(True)
-        self._value_label.setText(f"Version {version} · {fmt.size(len(data))} ({fmt.count(len(data))} bytes)")
+        self._show_version_sizes([(version, len(data))])
+        self._value_label.setText(f"Version {version} · {fmt.size(len(data))} ({fmt.count(len(data))} byte{'s' if len(data) != 1 else ''})")
 
         (structure, structure_note), typed, text, (json_text, json_nodes, json_note), hex_text = decoded
         self._structure_model.set_root(root_node(structure or []))

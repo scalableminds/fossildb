@@ -95,14 +95,20 @@ def test_hex_dump():
 def test_wire_nodes():
     nodes = decoding.wire_nodes(MESSAGE)
     columns = [node.columns for node in nodes]
-    assert columns[0][:3] == ("1", "varint", str(2**64 - 1))
-    assert "int64 -1" in columns[0][3]
-    assert columns[3][1].startswith("string") and columns[3][2] == "hello world"
-    assert columns[4][1].startswith("message")
+    assert columns[0][:4] == ("1", "varint", "11 B", str(2**64 - 1))
+    assert "int64 -1" in columns[0][4]
+    assert columns[3][1] == "string" and columns[3][3] == "hello world"
+    assert columns[4][1] == "message"
     nested = nodes[4].children
-    assert nested[0].columns[:3] == ("1", "varint", "150")
-    assert columns[5][1].startswith("bytes")
+    assert nested[0].columns[:4] == ("1", "varint", "3 B", "150")
+    assert columns[5][1] == "bytes"
     assert columns[6][1] == "empty"
+
+
+def test_wire_field_sizes_add_up():
+    fields, _ = wire.parse_message(MESSAGE)
+    assert sum(field.size for field in fields) == len(MESSAGE)
+    assert [field.size for field in fields] == [11, 9, 5, 13, 5, 5, 2]
 
 
 def test_wire_nodes_rejects_non_protobuf():
@@ -169,3 +175,11 @@ def test_object_id_date():
     assert fmt.object_id_date("5a0627196b0000221d37a590-x") is None
     assert fmt.object_id_date("00000000-587f-a699-2700-00bc111c538f") is None
     assert fmt.object_id_date("000000000000000000000000") is None  # 1970
+
+
+def test_thousands_are_separated_by_narrow_spaces():
+    from fossildb_gui import fmt
+
+    assert fmt.count(41_300_000) == "41 300 000"
+    assert fmt.count(999) == "999"
+    assert decoding.json_nodes({"a": list(range(1500))})[0].columns[1] == "[…] 1 500 items"

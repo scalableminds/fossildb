@@ -147,6 +147,24 @@ def _serve(fake: FakeFossilDB):
     return server, f"127.0.0.1:{port}"
 
 
+@pytest.fixture(autouse=True)
+def decimal_sizes():
+    """The size units are global, so each test starts with the default."""
+    from fossildb_gui import fmt
+
+    fmt.set_decimal(True)
+    yield
+    fmt.set_decimal(True)
+
+
+@pytest.fixture(autouse=True)
+def no_local_scan(monkeypatch):
+    """The connect dialog looks for FossilDB servers on this computer, which tests shouldn't depend on."""
+    from fossildb_gui import discovery
+
+    monkeypatch.setattr(discovery, "listening_local_ports", lambda: set())
+
+
 @pytest.fixture(params=[False, True], ids=["current", "legacy"])
 def fake_server(request):
     fake = FakeFossilDB(legacy=request.param)

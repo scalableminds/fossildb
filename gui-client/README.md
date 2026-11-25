@@ -20,11 +20,16 @@ the first start, and again whenever that file changes.
 ## Features
 
 - **Connections**: direct or through an SSH tunnel. Recent connections can be named, e.g. "production"; the name
-  is shown in the window title and in confirmations. Right-click a recent connection to rename or remove it.
+  is shown in the window title and in confirmations. Choosing a recent connection fills in its values; double-click
+  or Enter connects. Right-click it to rename or remove it.
+  A dot shows whether a recent direct connection answers (green) or not (gray; the tooltip says why). FossilDB
+  servers listening on this computer, e.g. in Docker, are found and listed as well.
 - **Overview**: server version, disk usage and write status, and a table of the collections: size on disk (with a
   bar for comparison), estimated number of versions, compression, and warnings for pending compactions or many deletion
   markers. Hover over a collection for all its statistics (uncompressed size, LSM levels, first and last key, …).
   Open a collection with a left click or double-click, depending on the desktop setting; right-click to copy.
+- **Sizes** are shown in decimal units (kB, MB, GB) by default; the View menu switches to binary ones (KiB, MiB,
+  GiB).
 - **Older servers** (from 0.1.37) can't list their collections or report statistics. Enter the collection name
   instead; WEBKNOSSOS collections and recently used ones are suggested.
 - **Keys**: loaded page by page while scrolling, filtered by prefix. Version counts are loaded for visible rows.

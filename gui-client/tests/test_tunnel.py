@@ -24,7 +24,14 @@ def pipe(a, b):
     b.close()
 while True:
     client, _ = listener.accept()
-    upstream = socket.create_connection((remote_host, int(remote_port)))
+    try:
+        upstream = socket.create_connection((remote_host, int(remote_port)))
+    except OSError:
+        # Like ssh, which keeps running
+        sys.stderr.write("channel 2: open failed: connect failed: Connection refused\\n")
+        sys.stderr.flush()
+        client.close()
+        continue
     threading.Thread(target=pipe, args=(client, upstream), daemon=True).start()
     threading.Thread(target=pipe, args=(upstream, client), daemon=True).start()
 """
@@ -70,3 +77,17 @@ def test_tunnel_forwards_and_stops(fake_ssh, echo_server):
 def test_tunnel_reports_ssh_errors(fake_ssh):
     with pytest.raises(TunnelError, match="Could not resolve hostname"):
         SshTunnel("unreachable", "localhost", 7155).start()
+
+
+def test_unreachable_server_behind_tunnel_fails_fast(fake_ssh):
+    import time
+
+    from fossildb_gui.connection import FossilDBError, connect
+
+    closed = socket.create_server(("127.0.0.1", 0))
+    port = closed.getsockname()[1]
+    closed.close()
+    start = time.monotonic()
+    with pytest.raises(FossilDBError, match="not reachable from somehost.*Connection refused"):
+        connect(f"127.0.0.1:{port}", "somehost")
+    assert time.monotonic() - start < 8  # starting the fake ssh can take a few seconds on a busy machine

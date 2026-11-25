@@ -1,8 +1,9 @@
 """The window for choosing a FossilDB server to connect to."""
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtCore import QEvent, Qt, Signal
+from PySide6.QtGui import QAction, QColor, QGuiApplication, QIcon, QKeySequence, QPainter, QPixmap
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -18,8 +19,41 @@ from PySide6.QtWidgets import (
 )
 
 from fossildb_gui import settings
+from fossildb_gui import tunnel as tunnel_module
 from fossildb_gui.settings import ConnectionSpec
 from fossildb_gui.tasks import Latest, TaskRunner
+
+
+_GREEN = QColor(46, 160, 67)
+_GRAY = QColor(150, 150, 150)
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]"}
+
+
+def _dot(color: QColor | None) -> QIcon:
+    """A small colored circle for the reachability of a connection; transparent for None."""
+    pixmap = QPixmap(12, 12)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    if color is not None:
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(color)
+        painter.drawEllipse(2, 2, 8, 8)
+        painter.end()
+    return QIcon(pixmap)
+
+
+def _discovery():
+    # Imported in the background threads, since it loads grpc, which would delay showing the dialog
+    from fossildb_gui import discovery
+
+    return discovery
+
+
+def _local_port(spec: ConnectionSpec) -> int | None:
+    """The port of a direct connection to this computer, which the search for local servers can skip."""
+    host, _, port = spec.address.rpartition(":")
+    return int(port) if not spec.ssh_host and host in _LOCAL_HOSTS and port.isdigit() else None
 
 
 class ConnectDialog(QDialog):
@@ -32,11 +66,14 @@ class ConnectDialog(QDialog):
         self.setMinimumWidth(460)
         self._runner = runner
         self._latest = Latest()
+        self._focus_before = None
 
         self._recent = QListWidget()
         for spec in settings.recent_connections():
             item = QListWidgetItem()
             self._set_item_spec(item, spec)
+            # A transparent dot, so that the text doesn't move once the check shows a colored one
+            item.setIcon(_dot(None))
             self._recent.addItem(item)
         self._recent.setContextMenuPolicy(Qt.ContextMenuPolicy.ActionsContextMenu)
         rename = QAction("Rename…", self._recent)
@@ -49,8 +86,11 @@ class ConnectDialog(QDialog):
         remove.triggered.connect(self._remove_selected)
         self._recent.addActions([rename, remove])
         self._recent.setToolTip("Right-click to rename (F2) or remove (Del) a connection")
+        # Choosing a connection (by click or arrow keys) fills in the fields; double-click or Enter connects
+        self._recent.currentItemChanged.connect(lambda item, _: item and self._fill(item.data(Qt.ItemDataRole.UserRole)))
         self._recent.itemClicked.connect(lambda item: self._fill(item.data(Qt.ItemDataRole.UserRole)))
-        self._recent.itemActivated.connect(lambda item: self._connect(item.data(Qt.ItemDataRole.UserRole)))
+        self._recent.itemDoubleClicked.connect(self._double_clicked)
+        self._recent.installEventFilter(self)
 
         self._direct = QRadioButton("Direct")
         self._tunnel = QRadioButton("SSH tunnel")
@@ -86,17 +126,23 @@ class ConnectDialog(QDialog):
 
         self._buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
         self._connect_button = self._buttons.addButton("Connect", QDialogButtonBox.ButtonRole.AcceptRole)
-        self._connect_button.setDefault(True)
         self._buttons.accepted.connect(lambda: self._connect(self._spec()))
         self._buttons.rejected.connect(self.reject)
 
         layout = QVBoxLayout(self)
-        if self._recent.count():
-            layout.addWidget(QLabel("Recent connections:"))
-            layout.addWidget(self._recent)
+        self._recent_label = QLabel("Recent connections:")
+        layout.addWidget(self._recent_label)
+        layout.addWidget(self._recent)
+        has_recent = self._recent.count() > 0
+        self._recent_label.setVisible(has_recent)
+        self._recent.setVisible(has_recent)
         layout.addLayout(form)
         layout.addWidget(self._status)
         layout.addWidget(self._buttons)
+        # Only now that the button belongs to the dialog; before, Qt doesn't register it as the dialog's default, and
+        # Enter in a text field would do nothing. Cancel shouldn't take over as default when it gets the focus.
+        self._connect_button.setDefault(True)
+        self._buttons.button(QDialogButtonBox.StandardButton.Cancel).setAutoDefault(False)
 
         if initial is not None:
             self._fill(initial)
@@ -105,13 +151,15 @@ class ConnectDialog(QDialog):
             self._fill(self._recent.item(0).data(Qt.ItemDataRole.UserRole))
         self._update_mode()
         self._direct.toggled.connect(self._mode_changed)
+        (self._recent if self._recent.count() else self._address).setFocus()
+        self._start_checks()
 
     def _mode_changed(self) -> None:
         # Grows or shrinks the dialog by the SSH host row, instead of letting the list absorb it
         before = self._recent.height()
         self._update_mode()
         self.layout().activate()
-        if self._recent.count():
+        if self._recent.isVisible():
             self.resize(self.width(), self.height() + before - self._recent.height())
         else:
             self.resize(self.width(), self.minimumSizeHint().height())
@@ -163,6 +211,22 @@ class ConnectDialog(QDialog):
         ssh_host = self._ssh_host.text().strip() if self._tunnel.isChecked() else ""
         return ConnectionSpec(self._address.text().strip(), ssh_host, self._name.text().strip())
 
+    def _double_clicked(self, item: QListWidgetItem) -> None:
+        if QGuiApplication.mouseButtons() & Qt.MouseButton.LeftButton or not QGuiApplication.mouseButtons():
+            self._connect(item.data(Qt.ItemDataRole.UserRole))
+
+    def eventFilter(self, watched, event) -> bool:
+        # Enter in the recent connections connects to the chosen one
+        if (
+            watched is self._recent
+            and event.type() == QEvent.Type.KeyPress
+            and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+            and self._recent.currentItem() is not None
+        ):
+            self._connect(self._recent.currentItem().data(Qt.ItemDataRole.UserRole))
+            return True
+        return super().eventFilter(watched, event)
+
     def connect_to(self, spec: ConnectionSpec) -> None:
         self._fill(spec)
         self._connect(spec)
@@ -172,6 +236,8 @@ class ConnectDialog(QDialog):
             self._show_status("Please enter the FossilDB address, e.g. localhost:7155")
             return
         self._fill(spec)
+        # Disabling the inputs takes away their focus, so it is given back if connecting fails
+        self._focus_before = QApplication.focusWidget()
         self._set_busy(True)
         self._show_status(f"Connecting to {spec.title} …")
 
@@ -206,6 +272,9 @@ class ConnectDialog(QDialog):
     def _failed(self, error: Exception) -> None:
         self._set_busy(False)
         self._show_status(f"<b>Connection failed:</b> {error}")
+        focus = self._focus_before
+        if focus is not None and self.isAncestorOf(focus) and focus.isVisible() and focus.isEnabled():
+            focus.setFocus()
 
     def _show_status(self, text: str) -> None:
         self._status.setText(text)
@@ -222,3 +291,53 @@ class ConnectDialog(QDialog):
         # A connection attempt that is still running is closed when it completes
         self._latest.invalidate()
         super().reject()
+
+    def done(self, result: int) -> None:
+        self._checks.shutdown()
+        super().done(result)
+
+    # Checking the recent connections, and looking for servers on this computer
+
+    def _start_checks(self) -> None:
+        # Their own threads, so that they never delay connecting
+        self._checks = TaskRunner(max_workers=8, parent=self)
+        for spec in settings.recent_connections():
+            if not spec.ssh_host:  # checking a tunnel would mean opening an SSH connection for each
+                self._checks.submit(
+                    lambda spec=spec: _discovery().check(spec.address),
+                    lambda error, spec=spec: self._checked(spec, error),
+                    context=self,
+                )
+        known = {_local_port(spec) for spec in settings.recent_connections()} | {
+            tunnel.local_port for tunnel in list(tunnel_module._running)
+        }
+        self._checks.submit(lambda: _discovery().find_local(known - {None}), self._found_local, context=self)
+
+    def _checked(self, spec: ConnectionSpec, error: str | None) -> None:
+        for row in range(self._recent.count()):
+            item = self._recent.item(row)
+            if item.data(Qt.ItemDataRole.UserRole) == spec:
+                item.setIcon(_dot(_GREEN if error is None else _GRAY))
+                item.setToolTip("FossilDB answers" if error is None else f"Not reachable: {error}")
+
+    def _found_local(self, ports: list[int]) -> None:
+        if not ports:
+            return
+        if self._recent.count():
+            header = QListWidgetItem("On this computer")
+            header.setFlags(Qt.ItemFlag.NoItemFlags)
+            font = header.font()
+            font.setItalic(True)
+            header.setFont(font)
+            self._recent.addItem(header)
+        else:
+            self._recent_label.setText("FossilDB on this computer:")
+        for port in ports:
+            item = QListWidgetItem()
+            self._set_item_spec(item, ConnectionSpec(f"localhost:{port}"))
+            item.setIcon(_dot(_GREEN))
+            item.setToolTip(f"FossilDB answers on port {port} of this computer")
+            self._recent.addItem(item)
+        if not self._recent.isVisible():
+            self._recent_label.show()
+            self._recent.show()

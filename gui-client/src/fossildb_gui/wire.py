@@ -32,6 +32,7 @@ class WireField:
     wire_type: int
     offset: int  # of the tag, relative to the start of the parsed data
     value: int | memoryview  # memoryview for length-delimited fields, int otherwise
+    size: int  # encoded size of the whole field: tag, length prefix and value
 
 
 def read_varint(buf: memoryview, pos: int, end: int) -> tuple[int, int]:
@@ -89,7 +90,7 @@ def parse_message(data: bytes | memoryview, max_fields: int | None = None) -> tu
             pos += length
         else:
             raise WireError(f"unsupported wire type {wire_type}", tag_offset)
-        fields.append(WireField(number, wire_type, tag_offset, value))
+        fields.append(WireField(number, wire_type, tag_offset, value, pos - tag_offset))
     return fields, False
 
 

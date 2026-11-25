@@ -4,17 +4,37 @@ import datetime as dt
 import re
 
 
+# Decimal units (kB, MB, GB: powers of 1000) or binary ones (KiB, MiB, GiB: powers of 1024), for all sizes in the UI
+_decimal = True
+_DECIMAL_UNITS = ("B", "kB", "MB", "GB", "TB", "PB")
+_BINARY_UNITS = ("B", "KiB", "MiB", "GiB", "TiB", "PiB")
+
+
+def set_decimal(decimal: bool) -> None:
+    global _decimal
+    _decimal = decimal
+
+
+def is_decimal() -> bool:
+    return _decimal
+
+
 def size(num_bytes: int | float) -> str:
+    base, units = (1000, _DECIMAL_UNITS) if _decimal else (1024, _BINARY_UNITS)
     value = float(num_bytes)
-    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
-        if abs(value) < 1024 or unit == "TiB":
+    for unit in units:
+        if abs(value) < base or unit == units[-1]:
             return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
-        value /= 1024
+        value /= base
     raise AssertionError
 
 
+# Narrow no-break space (U+202F) between groups of thousands, e.g. 41 300 000
+THOUSANDS_SEPARATOR = "\u202f"
+
+
 def count(n: int) -> str:
-    return f"{n:,}"
+    return f"{n:,}".replace(",", THOUSANDS_SEPARATOR)
 
 
 def compact_count(n: int) -> str:

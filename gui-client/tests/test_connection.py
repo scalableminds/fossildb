@@ -56,9 +56,35 @@ def test_errors_are_raised(current_server):
 
 
 def test_unreachable_server():
-    with pytest.raises(FossilDBError, match="Could not reach"):
-        # Port 1 is reserved and nothing listens there
-        import fossildb_gui.connection as c
+    import socket
+    import threading
+    import time
 
-        c.CONNECT_TIMEOUT_SECONDS = 1
-        connect("127.0.0.1:1")
+    closed = socket.create_server(("127.0.0.1", 0))
+    port = closed.getsockname()[1]
+    closed.close()
+    start = time.monotonic()
+    with pytest.raises(FossilDBError, match="Nothing is listening"):
+        connect(f"127.0.0.1:{port}")
+    with pytest.raises(FossilDBError, match="Unknown host"):
+        connect("doesnotexist.invalid:7155")
+    with pytest.raises(FossilDBError, match="host:port"):
+        connect("no-port")
+
+    # A server that accepts connections, but is not FossilDB
+    other = socket.create_server(("127.0.0.1", 0))
+
+    def serve():
+        while True:
+            try:
+                client, _ = other.accept()
+            except OSError:
+                return
+            client.sendall(b"HTTP/1.1 400 Bad Request\r\n\r\n")
+            client.close()
+
+    threading.Thread(target=serve, daemon=True).start()
+    with pytest.raises(FossilDBError, match="did not answer like FossilDB"):
+        connect(f"127.0.0.1:{other.getsockname()[1]}")
+    other.close()
+    assert time.monotonic() - start < 5

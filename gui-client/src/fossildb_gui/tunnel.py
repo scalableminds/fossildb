@@ -4,6 +4,7 @@ import atexit
 import shutil
 import socket
 import subprocess
+import threading
 import time
 
 
@@ -29,6 +30,8 @@ class SshTunnel:
         self.remote_port = remote_port
         self.local_port: int | None = None
         self._process: subprocess.Popen | None = None
+        # ssh's error output, collected while it runs, e.g. "channel 2: open failed: connect failed: ..."
+        self._errors: list[str] = []
 
     def start(self, timeout_seconds: float = 20) -> int:
         """Starts the tunnel and returns the local port once it accepts connections."""
@@ -53,6 +56,7 @@ class SshTunnel:
             start_new_session=True,  # don't receive the terminal's Ctrl+C
         )
         _running.add(self)
+        threading.Thread(target=self._collect_errors, args=(self._process.stderr,), daemon=True).start()
         deadline = time.monotonic() + timeout_seconds
         while time.monotonic() < deadline:
             if self._process.poll() is not None:
@@ -72,10 +76,21 @@ class SshTunnel:
     def exit_message(self) -> str:
         return self._read_error() or "ssh exited"
 
+    def _collect_errors(self, stream) -> None:
+        for line in stream:
+            self._errors.append(line.decode(errors="replace").strip())
+
     def _read_error(self) -> str:
-        if self._process is None or self._process.stderr is None or self._process.poll() is None:
-            return ""
-        return self._process.stderr.read().decode(errors="replace").strip()
+        if self._process is not None and self._process.poll() is not None:
+            time.sleep(0.05)  # the last lines may still be on their way
+        return "\n".join(line for line in self._errors if line)
+
+    def last_error(self, wait_seconds: float = 0.5) -> str:
+        """The latest message from ssh, e.g. why a forwarded connection failed. Waits a little for it to arrive."""
+        deadline = time.monotonic() + wait_seconds
+        while not self._errors and time.monotonic() < deadline:
+            time.sleep(0.02)
+        return self._errors[-1] if self._errors else ""
 
     def stop(self) -> None:
         _running.discard(self)

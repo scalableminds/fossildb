@@ -29,8 +29,10 @@ def _app_icon() -> QIcon:
 
 class Application:
     def __init__(self, qt_app: QApplication):
-        from fossildb_gui import settings
+        from fossildb_gui import fmt, settings
         from fossildb_gui.schema_manager import SchemaManager
+
+        fmt.set_decimal(settings.decimal_sizes())
         from fossildb_gui.tasks import TaskRunner
 
         self._qt_app = qt_app

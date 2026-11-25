@@ -1,8 +1,11 @@
 """One window per connection: the overview tab, plus one tab per opened collection."""
 
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QKeySequence
+import sys
+
+from PySide6.QtCore import QPoint, Qt, QTimer, Signal
+from PySide6.QtGui import QAction, QActionGroup, QKeySequence
 from PySide6.QtWidgets import (
+    QApplication,
     QFileDialog,
     QInputDialog,
     QLabel,
@@ -12,12 +15,20 @@ from PySide6.QtWidgets import (
     QTabWidget,
 )
 
-from fossildb_gui import __version__, settings
+from fossildb_gui import __version__, fmt, settings
 from fossildb_gui.key_browser import KeyBrowser
 from fossildb_gui.overview import OverviewWidget
 from fossildb_gui.schema_manager import SchemaManager
 from fossildb_gui.settings import ConnectionSpec
 from fossildb_gui.tasks import Latest, TaskRunner
+
+
+def _set_size_units(decimal: bool) -> None:
+    fmt.set_decimal(decimal)
+    settings.set_decimal_sizes(decimal)
+    for widget in QApplication.topLevelWidgets():
+        if isinstance(widget, MainWindow):
+            widget.redisplay()
 
 
 class MainWindow(QMainWindow):
@@ -27,7 +38,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setWindowTitle(f"FossilDB – {spec.title}")
-        self.resize(1400, 850)
+        self._restore_geometry()
         self._spec = spec
         self._connection = connection
         self._runner = runner
@@ -66,6 +77,15 @@ class MainWindow(QMainWindow):
         file_menu = self.menuBar().addMenu("&File")
         file_menu.addAction("New Connection…", QKeySequence.StandardKey.New, self.new_connection_requested.emit)
         file_menu.addAction("Close Tab", QKeySequence.StandardKey.Close, self._close_current_tab)
+        # On macOS, "Ctrl" means the Command key, and Cmd+Tab belongs to the system; Meta is the Control key there
+        ctrl = "Meta" if sys.platform == "darwin" else "Ctrl"
+        next_tab = file_menu.addAction("Next Tab", lambda: self._switch_tab(1))
+        next_tab.setShortcuts([QKeySequence(f"{ctrl}+Tab"), QKeySequence(f"{ctrl}+PgDown")])
+        previous_tab = file_menu.addAction("Previous Tab", lambda: self._switch_tab(-1))
+        # With Shift, Qt reports the Tab key as Backtab
+        previous_tab.setShortcuts(
+            [QKeySequence(f"{ctrl}+Shift+Backtab"), QKeySequence(f"{ctrl}+Shift+Tab"), QKeySequence(f"{ctrl}+PgUp")]
+        )
         file_menu.addSeparator()
         file_menu.addAction("Close Window", QKeySequence("Ctrl+Shift+W"), self.close)
         file_menu.addAction("Quit", QKeySequence.StandardKey.Quit, self._quit)
@@ -85,6 +105,18 @@ class MainWindow(QMainWindow):
         schema_menu.addAction("Load .proto Folder…", self._choose_schema_folder)
         schema_menu.addAction("Reload Schemas", lambda: self._schemas.load())
 
+        view_menu = self.menuBar().addMenu("&View")
+        view_menu.addSection("Size Units")
+        units = QActionGroup(self)
+        self._decimal_action = view_menu.addAction("Decimal Sizes (kB, MB, GB)")
+        self._binary_action = view_menu.addAction("Binary Sizes (KiB, MiB, GiB)")
+        for action in (self._decimal_action, self._binary_action):
+            action.setCheckable(True)
+            units.addAction(action)
+        (self._decimal_action if fmt.is_decimal() else self._binary_action).setChecked(True)
+        self._decimal_action.triggered.connect(lambda: _set_size_units(True))
+        self._binary_action.triggered.connect(lambda: _set_size_units(False))
+
         help_menu = self.menuBar().addMenu("&Help")
         help_menu.addAction("About", self._about)
 
@@ -98,6 +130,18 @@ class MainWindow(QMainWindow):
         settings.add_recent_collection(self._spec.label, name)
         browser = KeyBrowser(self._connection, name, self._runner, self._schemas, self)
         self._tabs.setCurrentIndex(self._tabs.addTab(browser, name))
+
+    def redisplay(self) -> None:
+        """Shows everything again, e.g. after the size units changed."""
+        (self._decimal_action if fmt.is_decimal() else self._binary_action).setChecked(True)
+        self._overview.redisplay()
+        for index in range(1, self._tabs.count()):
+            self._tabs.widget(index).record.redisplay()
+
+    def _switch_tab(self, step: int) -> None:
+        count = self._tabs.count()
+        if count > 1:
+            self._tabs.setCurrentIndex((self._tabs.currentIndex() + step) % count)
 
     def _close_tab(self, index: int) -> None:
         if index > 0:
@@ -251,9 +295,16 @@ class MainWindow(QMainWindow):
         )
 
     def _quit(self) -> None:
-        from PySide6.QtWidgets import QApplication
-
         QApplication.closeAllWindows()
+
+    # Keys that move to the list of the current tab when no other widget used them, e.g. while a button has the focus
+    _LIST_KEYS = {Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_PageUp, Qt.Key.Key_PageDown}
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() in self._LIST_KEYS and not event.modifiers():
+            if self._tabs.currentWidget().take_list_key(event):
+                return
+        super().keyPressEvent(event)
 
     def closeEvent(self, event) -> None:
         if self._compacting:
@@ -266,5 +317,22 @@ class MainWindow(QMainWindow):
             if answer != QMessageBox.StandardButton.Yes:
                 event.ignore()
                 return
+        settings.set_window_geometry(self.saveGeometry())
         self._runner.submit(self._connection.close)
         super().closeEvent(event)
+
+    # Default size, as share of the screen's available area
+    DEFAULT_SCREEN_SHARE = 0.8
+    CASCADE_OFFSET = 32
+
+    def _restore_geometry(self) -> None:
+        geometry = settings.window_geometry()
+        if geometry is None or not self.restoreGeometry(geometry):
+            available = self.screen().availableGeometry()
+            size = available.size() * self.DEFAULT_SCREEN_SHARE
+            self.resize(size)
+            self.move(available.center() - QPoint(size.width() // 2, size.height() // 2))
+        # A second window would otherwise cover the first one exactly. (On Wayland, the compositor places windows.)
+        others = [w for w in QApplication.topLevelWidgets() if isinstance(w, MainWindow) and w is not self and w.isVisible()]
+        if any(other.pos() == self.pos() for other in others):
+            self.move(self.pos() + QPoint(self.CASCADE_OFFSET, self.CASCADE_OFFSET))

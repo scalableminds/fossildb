@@ -20,11 +20,8 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QStyle,
-    QApplication,
-    QStyledItemDelegate,
     QStyleFactory,
     QStyleOptionHeader,
-    QStyleOptionViewItem,
     QTableView,
     QVBoxLayout,
     QWidget,
@@ -32,6 +29,7 @@ from PySide6.QtWidgets import (
 
 from fossildb_gui import fmt, settings
 from fossildb_gui.settings import ConnectionSpec
+from fossildb_gui.tree import PaddedDelegate, take_list_key
 
 _SORT_ROLE = Qt.ItemDataRole.UserRole
 AUTO_REFRESH_SECONDS = 1
@@ -234,41 +232,19 @@ class CollectionsModel(QAbstractTableModel):
         return None
 
 
-class _PaddedDelegate(QStyledItemDelegate):
-    """Keeps text away from the cell borders, so right- and left-aligned neighbors don't touch."""
-
-    PADDING = 8
-
-    def paint(self, painter, option, index) -> None:
-        # Background and selection across the whole cell, then the content within the padding
-        background = QStyleOptionViewItem(option)
-        self.initStyleOption(background, index)
-        background.text = ""
-        style = option.widget.style() if option.widget else QApplication.style()
-        style.drawPrimitive(QStyle.PrimitiveElement.PE_PanelItemViewItem, background, painter, option.widget)
-        content = QStyleOptionViewItem(option)
-        content.rect = option.rect.adjusted(self.PADDING, 0, -self.PADDING, 0)
-        super().paint(painter, content, index)
-
-    def sizeHint(self, option, index):
-        size = super().sizeHint(option, index)
-        size.setWidth(size.width() + 2 * self.PADDING)
-        return size
-
-
 class _PaddedHeaderStyle(QProxyStyle):
-    """Indents the header labels like the cells of _PaddedDelegate."""
+    """Indents the header labels like the cells of PaddedDelegate."""
 
     def drawControl(self, element, option, painter, widget=None) -> None:
         if element == QStyle.ControlElement.CE_HeaderLabel:
             option = QStyleOptionHeader(option)
-            option.rect = option.rect.adjusted(_PaddedDelegate.PADDING, 0, -_PaddedDelegate.PADDING, 0)
+            option.rect = option.rect.adjusted(PaddedDelegate.PADDING, 0, -PaddedDelegate.PADDING, 0)
         super().drawControl(element, option, painter, widget)
 
     def sizeFromContents(self, contents_type, option, size, widget=None):
         size = super().sizeFromContents(contents_type, option, size, widget)
         if contents_type == QStyle.ContentsType.CT_HeaderSection:
-            size.setWidth(size.width() + 2 * _PaddedDelegate.PADDING)
+            size.setWidth(size.width() + 2 * PaddedDelegate.PADDING)
         return size
 
 
@@ -293,7 +269,7 @@ class _CollectionsView(QTableView):
             self.other_button = False
 
 
-class _SizeBarDelegate(_PaddedDelegate):
+class _SizeBarDelegate(PaddedDelegate):
     """Draws a bar for the size, left of the right-aligned number."""
 
     _TEXT_SPACE = 70  # room for e.g. "1023.9 GiB"
@@ -349,7 +325,7 @@ class _Value(QLabel):
 _SERVER_FIELDS = [
     [("Address", False), ("Version", False), ("Running since", False), ("Status", False)],
     [("Data directory", True), ("Backup directory", True), ("Options file", True), ("Write-ahead log", False)],
-    [("Updated", False), ("Disk", False), ("Collections", False)],
+    [("Updated", False), ("Disk", False), ("Collections", False), ("Size", False)],
 ]
 _LEGACY_FIELDS = {"Address", "Version", "Updated"}
 
@@ -363,6 +339,7 @@ class OverviewWidget(QWidget):
         super().__init__(parent)
         self._connection_label = spec.label
         self._server_title = spec.title
+        self._info = None  # the DatabaseInfoProto shown
 
         refresh = QPushButton("Refresh")
         refresh.clicked.connect(self.refresh_requested)
@@ -422,6 +399,7 @@ class OverviewWidget(QWidget):
         self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._table.customContextMenuRequested.connect(self._context_menu)
         self._table.setWordWrap(False)  # otherwise long keys are cut at hyphens instead of at the end
+        self._table.setTabKeyNavigation(False)  # Tab moves to the next control, not to the next cell
         self._table.setModel(self._proxy)
         self._table.setSortingEnabled(True)
         self._table.sortByColumn(_SIZE_COLUMN, Qt.SortOrder.DescendingOrder)
@@ -437,7 +415,7 @@ class OverviewWidget(QWidget):
         self._table.verticalHeader().hide()
         self._table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self._table.horizontalHeader().setStretchLastSection(True)
-        self._table.setItemDelegate(_PaddedDelegate(self._table))
+        self._table.setItemDelegate(PaddedDelegate(self._table))
         self._table.setItemDelegateForColumn(_SIZE_COLUMN, _SizeBarDelegate(self._table))
         self._table.activated.connect(self._activated)
 
@@ -478,8 +456,18 @@ class OverviewWidget(QWidget):
 
     def set_info(self, info) -> None:
         """Shows the DatabaseInfoProto, or the manual collection entry if info is None."""
+        self._labels["Updated"].setText(time.strftime("%H:%M:%S"))
+        self._info = info
+        self._show(info)
+
+    def redisplay(self) -> None:
+        """Shows the same information again, e.g. with other size units."""
+        if self._info is not None:
+            self._show(self._info)
+            self._table.viewport().update()
+
+    def _show(self, info) -> None:
         labels = self._labels
-        labels["Updated"].setText(time.strftime("%H:%M:%S"))
         legacy = info is None
         self._manual_box.setVisible(legacy)
         self._auto_refresh.setEnabled(not legacy)  # nothing changes without GetDatabaseInfo
@@ -516,11 +504,22 @@ class OverviewWidget(QWidget):
             self._table.setColumnWidth(0, min(self._table.columnWidth(0), 320))
             self._table.setColumnWidth(_SIZE_COLUMN, 240)
 
-        total_disk = sum(c.liveSstFilesBytes for c in info.collections)
         total_versions = sum(c.estimatedVersionCount for c in info.collections)
-        labels["Collections"].setText(
-            f"{len(info.collections)}, {fmt.size(total_disk)} on disk, ~{fmt.compact_count(total_versions)} versions"
+        labels["Collections"].setText(f"{len(info.collections)} with ~{fmt.compact_count(total_versions)} versions")
+        on_disk = sum(c.liveSstFilesBytes for c in info.collections)
+        uncompressed = sum(_raw_bytes(c) for c in info.collections)
+        ratio = f" ({uncompressed / on_disk:.1f}×)" if on_disk else ""
+        labels["Size"].setText(f"{fmt.size(on_disk)} on disk, {fmt.size(uncompressed)} uncompressed{ratio}")
+        labels["Size"].setToolTip(
+            "Data files of all collections. Recent writes that are still in memory and the write-ahead log are not included."
         )
+
+    def take_list_key(self, event) -> bool:
+        """Handles an arrow key that no other widget used: moves the focus to the list, and selects its first row if
+        none is selected yet, or else moves the selection. False if there is no list."""
+        if not self._table.isVisible() or not self._model.rowCount():
+            return False
+        return take_list_key(self._table, event)
 
     def _auto_refresh_toggled(self, on: bool) -> None:
         if on:
