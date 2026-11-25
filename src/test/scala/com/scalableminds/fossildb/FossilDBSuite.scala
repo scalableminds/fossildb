@@ -589,4 +589,52 @@ class FossilDBSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHelpers
     assert(reply.versions.contains(2))
   }
 
+  "GetDatabaseInfo" should "report collections with data in memtables" in {
+    client.put(PutRequest(collectionA, aKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aKey, Some(1), testData2))
+    client.put(PutRequest(collectionA, aThirdKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aNotherKey, Some(5), testData1))
+    val reply = client.getDatabaseInfo(GetDatabaseInfoRequest())
+    assert(reply.success)
+    val info = reply.databaseInfo.get
+    assert(info.fossildbVersion.nonEmpty)
+    assert(info.rocksdbVersion.nonEmpty)
+    assert(info.diskTotalBytes > 0)
+    assert(!info.backupInProgress && !info.compactionInProgress && !info.writesStopped)
+    assert(info.collections.map(_.name) == Seq(collectionA, collectionB))
+    val a = info.collections.head
+    assert(a.columnFamily == collectionA)
+    assert(a.estimatedVersionCount == 4)
+    assert(a.memtableEntries == 4)
+    assert(a.memtableBytes > 0)
+    assert(a.sstFileCount == 0)
+    assert(a.levels.isEmpty)
+    assert(a.firstKey.contains(aKey))
+    assert(a.lastKey.contains(aThirdKey))
+    assert(a.blockCacheCapacityBytes.contains(ConfigDefaults.blockCacheSizeMB * 1000 * 1000))
+    val b = info.collections(1)
+    assert(b.estimatedVersionCount == 0)
+    assert(b.firstKey.isEmpty && b.lastKey.isEmpty)
+  }
+
+  it should "report SST files and their compression after compaction" in {
+    client.put(PutRequest(collectionA, aKey, Some(0), testData1))
+    client.put(PutRequest(collectionA, aKey, Some(1), testData2))
+    client.put(PutRequest(collectionA, aNotherKey, Some(0), testData3))
+    client.compactAllData(CompactAllDataRequest())
+    val a = client.getDatabaseInfo(GetDatabaseInfoRequest()).databaseInfo.get.collections.head
+    assert(a.estimatedVersionCount == 3)
+    assert(a.sstEntries == 3)
+    assert(a.sstDeletions == 0)
+    assert(a.memtableEntries == 0)
+    assert(a.sstFileCount == 1)
+    assert(a.totalSstFilesBytes > 0)
+    assert(a.rawValueBytes == 3 * testData1.size)
+    assert(a.levels.map(_.fileCount).sum == 1)
+    assert(a.levels.flatMap(_.compressions) == Seq("ZSTD"))
+    assert(a.oldestSstFileCreationTimeSeconds.isDefined)
+    assert(a.firstKey.contains(aKey))
+    assert(a.lastKey.contains(aNotherKey))
+  }
+
 }

@@ -4,16 +4,33 @@ import com.typesafe.scalalogging.LazyLogging
 import org.rocksdb._
 
 import java.nio.charset.StandardCharsets
-import java.nio.file.{Files, Path}
+import java.nio.file.{Files, Path, Paths}
 import java.util
 import scala.collection.mutable
-import scala.jdk.CollectionConverters.{BufferHasAsJava, ListHasAsScala, SeqHasAsJava}
+import scala.jdk.CollectionConverters.{BufferHasAsJava, ListHasAsScala, MapHasAsScala, SeqHasAsJava}
 import scala.language.postfixOps
-import scala.util.Using
+import scala.util.{Try, Using}
 
 case class BackupInfo(id: Int, timestamp: Long, size: Long)
 
 case class KeyValuePair[T](key: String, value: T)
+
+case class RocksDBInfo(walSizeBytes: Long, writesStopped: Boolean, delayedWriteRateBytesPerSecond: Long,
+                       backgroundErrors: Long, runningCompactions: Long, runningFlushes: Long,
+                       collections: List[CollectionInfo])
+
+case class CollectionInfo(name: String, columnFamily: String, estimatedVersionCount: Long, sstFileCount: Long,
+                          totalSstFilesBytes: Long, liveSstFilesBytes: Long, estimatedLiveDataBytes: Long,
+                          sstEntries: Long, sstDeletions: Long, rawKeyBytes: Long, rawValueBytes: Long,
+                          indexBytes: Long, filterBytes: Long, memtableBytes: Long, memtableEntries: Long,
+                          memtableDeletions: Long, tableReadersMemoryBytes: Long, estimatedPendingCompactionBytes: Long,
+                          compactionPending: Boolean, oldestSstFileCreationTimeSeconds: Option[Long],
+                          newestSstFileCreationTimeSeconds: Option[Long], firstKey: Option[String],
+                          lastKey: Option[String], blockCacheCapacityBytes: Option[Long],
+                          blockCacheUsageBytes: Option[Long], blockCachePinnedUsageBytes: Option[Long],
+                          levels: List[LevelInfo])
+
+case class LevelInfo(level: Int, fileCount: Long, sizeBytes: Long, compressions: List[String])
 
 class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePathOpt: Option[String],
                      blockCacheSizeMB: Long) extends AutoCloseable with LazyLogging {
@@ -136,6 +153,91 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
       logger.info("Compaction finished")
     }
   }
+
+  // Reads only metadata and counters that RocksDB keeps anyway, no data is scanned
+  def databaseInfo(): RocksDBInfo = RocksDBInfo(
+    walSizeBytes = db.getSortedWalFiles.asScala.map(_.sizeFileBytes).sum,
+    // These properties are database-wide
+    writesStopped = db.getLongProperty("rocksdb.is-write-stopped") != 0,
+    delayedWriteRateBytesPerSecond = db.getLongProperty("rocksdb.actual-delayed-write-rate"),
+    backgroundErrors = db.getLongProperty("rocksdb.background-errors"),
+    runningCompactions = db.getLongProperty("rocksdb.num-running-compactions"),
+    runningFlushes = db.getLongProperty("rocksdb.num-running-flushes"),
+    collections = columnFamilies.map(name => collectionInfo(name, columnFamilyHandles(name)))
+  )
+
+  private def collectionInfo(name: String, handle: ColumnFamilyHandle): CollectionInfo = {
+    def property(name: String): Long = db.getLongProperty(handle, name)
+    // Fails if the column family has no block cache
+    def blockCacheProperty(name: String): Option[Long] = Try(property(name)).toOption
+
+    // Keyed by file name. Metadata and table properties are read separately, so a compaction in between can make
+    // them disagree on which files exist. Files missing from the properties are then left out of the compressions.
+    val tableProperties = db.getPropertiesOfAllTables(handle).asScala.map { case (path, properties) =>
+      Paths.get(path).getFileName.toString -> properties
+    }.toMap
+    val metaData = db.getColumnFamilyMetaData(handle)
+    val levels = metaData.levels.asScala.toList.filter(_.files.size > 0).map { level =>
+      val compressions = level.files.asScala.flatMap(file =>
+        tableProperties.get(Paths.get(file.fileName).getFileName.toString)).map(_.getCompressionName).distinct.sorted
+      LevelInfo(level.level, level.files.size, level.size, compressions.toList)
+    }
+    val allProperties = tableProperties.values
+    // 0 means unknown, e.g. for files written by old RocksDB versions
+    val creationTimes = allProperties.map(_.getCreationTime).filter(_ > 0)
+
+    val (firstKey, lastKey) = boundaryKeys(handle)
+
+    CollectionInfo(
+      name = name,
+      columnFamily = new String(handle.getName, StandardCharsets.UTF_8),
+      estimatedVersionCount = property("rocksdb.estimate-num-keys"),
+      sstFileCount = metaData.fileCount,
+      totalSstFilesBytes = property("rocksdb.total-sst-files-size"),
+      liveSstFilesBytes = property("rocksdb.live-sst-files-size"),
+      estimatedLiveDataBytes = property("rocksdb.estimate-live-data-size"),
+      sstEntries = allProperties.map(_.getNumEntries).sum,
+      sstDeletions = allProperties.map(_.getNumDeletions).sum,
+      rawKeyBytes = allProperties.map(_.getRawKeySize).sum,
+      rawValueBytes = allProperties.map(_.getRawValueSize).sum,
+      indexBytes = allProperties.map(_.getIndexSize).sum,
+      filterBytes = allProperties.map(_.getFilterSize).sum,
+      memtableBytes = property("rocksdb.cur-size-all-mem-tables"),
+      memtableEntries = property("rocksdb.num-entries-active-mem-table") + property("rocksdb.num-entries-imm-mem-tables"),
+      memtableDeletions = property("rocksdb.num-deletes-active-mem-table") + property("rocksdb.num-deletes-imm-mem-tables"),
+      tableReadersMemoryBytes = property("rocksdb.estimate-table-readers-mem"),
+      estimatedPendingCompactionBytes = property("rocksdb.estimate-pending-compaction-bytes"),
+      compactionPending = property("rocksdb.compaction-pending") != 0,
+      oldestSstFileCreationTimeSeconds = creationTimes.minOption,
+      newestSstFileCreationTimeSeconds = creationTimes.maxOption,
+      firstKey = firstKey,
+      lastKey = lastKey,
+      blockCacheCapacityBytes = blockCacheProperty("rocksdb.block-cache-capacity"),
+      blockCacheUsageBytes = blockCacheProperty("rocksdb.block-cache-usage"),
+      blockCachePinnedUsageBytes = blockCacheProperty("rocksdb.block-cache-pinned-usage"),
+      levels = levels
+    )
+  }
+
+  // Deleted entries stay in the data as deletion markers until a compaction removes them, and the iterator has to
+  // skip them. After a large DeleteAllByPrefix, that could take long, so give up after skipping too many.
+  private val maxSkippedEntriesForBoundaryKeys = 100000L
+
+  private def boundaryKeys(handle: ColumnFamilyHandle): (Option[String], Option[String]) =
+    Using.Manager { use =>
+      val readOptions = use(new ReadOptions().setMaxSkippableInternalKeys(maxSkippedEntriesForBoundaryKeys))
+      val it = use(db.newIterator(handle, readOptions))
+      // The iterator is invalid if the collection is empty or too many entries were skipped
+      def currentKey: Option[String] =
+        Option.when(it.isValid) {
+          val compositeKey = RocksDBStore.decodeKey(it.key())
+          VersionedKey(compositeKey).map(_.key).getOrElse(compositeKey)
+        }
+      it.seekToFirst()
+      val first = currentKey
+      it.seekToLast()
+      (first, currentKey)
+    }.get
 
   override def close(): Unit = {
     logger.info("Closing RocksDB handle")

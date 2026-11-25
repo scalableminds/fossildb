@@ -1,0 +1,31 @@
+[project]
+name = "fossildb-gui"
+version = "0.1.0"
+description = "Desktop client for browsing and managing FossilDB databases"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "PySide6-Essentials>=6.8",
+    "grpcio>=1.70",
+    # Generates the API code and compiles .proto schema files at runtime, so users don't need protoc
+    "grpcio-tools>=1.70",
+    "protobuf>=5.29",
+]
+
+[project.scripts]
+fossildb-gui = "fossildb_gui.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fossildb_gui"]
+# The generated API code is not checked in, but must be part of built packages
+artifacts = ["src/fossildb_gui/api/fossildbapi_pb2*.py"]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

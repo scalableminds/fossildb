@@ -226,6 +226,78 @@ message ExportDBReply {
     optional string errorMessage = 2;
 }
 
+message GetDatabaseInfoRequest {}
+
+message GetDatabaseInfoReply {
+    required bool success = 1;
+    optional string errorMessage = 2;
+    optional DatabaseInfoProto databaseInfo = 3;
+}
+
+// Collected from RocksDB metadata without scanning data. Counts named "estimated" are approximate: entries that
+// were overwritten or deleted are counted until a compaction removes them.
+message DatabaseInfoProto {
+    required string fossildbVersion = 1;
+    required string rocksdbVersion = 2;
+    required uint64 startTimeMillis = 3; // when this server started, milliseconds since epoch
+    required string dataDir = 4;
+    required string backupDir = 5;
+    optional string rocksOptionsFile = 6;
+    required uint64 diskTotalBytes = 7; // of the volume holding dataDir
+    required uint64 diskUsableBytes = 8;
+    required uint64 walSizeBytes = 9;
+    required bool backupInProgress = 10;
+    required bool compactionInProgress = 11;
+    required bool writesStopped = 12;
+    required uint64 delayedWriteRateBytesPerSecond = 13; // 0 if writes are not being delayed
+    required uint64 backgroundErrors = 14;
+    required uint32 runningCompactions = 15;
+    required uint32 runningFlushes = 16;
+    repeated CollectionInfoProto collections = 17;
+}
+
+message CollectionInfoProto {
+    required string name = 1;
+    // The RocksDB column family holding this collection. Can differ from name when an options file is used,
+    // see README.md#rocksdb-options-file
+    required string columnFamily = 2;
+    // Each version of each key is one entry, so this counts versions, not keys
+    required uint64 estimatedVersionCount = 3;
+    required uint64 sstFileCount = 4;
+    required uint64 totalSstFilesBytes = 5; // on disk, compressed, including files not yet deleted after compaction
+    required uint64 liveSstFilesBytes = 6;
+    required uint64 estimatedLiveDataBytes = 7;
+    required uint64 sstEntries = 8; // including deletion markers
+    required uint64 sstDeletions = 9;
+    required uint64 rawKeyBytes = 10; // uncompressed, summed over SST files
+    required uint64 rawValueBytes = 11;
+    required uint64 indexBytes = 12;
+    required uint64 filterBytes = 13;
+    required uint64 memtableBytes = 14; // data not yet flushed to SST files
+    required uint64 memtableEntries = 15;
+    required uint64 memtableDeletions = 16;
+    required uint64 tableReadersMemoryBytes = 17; // index and filter blocks held in memory
+    required uint64 estimatedPendingCompactionBytes = 18;
+    required bool compactionPending = 19;
+    optional uint64 oldestSstFileCreationTimeSeconds = 20; // seconds since epoch
+    optional uint64 newestSstFileCreationTimeSeconds = 21;
+    // Without version. Unset if the collection is empty, or if many deleted entries (not yet compacted) precede it
+    optional string firstKey = 22;
+    optional string lastKey = 23;
+    // The block cache may be shared with other collections, so don't sum these up
+    optional uint64 blockCacheCapacityBytes = 24;
+    optional uint64 blockCacheUsageBytes = 25;
+    optional uint64 blockCachePinnedUsageBytes = 26;
+    repeated LevelInfoProto levels = 27; // only levels that contain files
+}
+
+message LevelInfoProto {
+    required uint32 level = 1;
+    required uint64 fileCount = 2;
+    required uint64 sizeBytes = 3;
+    repeated string compressions = 4; // compression types of the files on this level, e.g. LZ4, ZSTD
+}
+
 
 service FossilDB {
     rpc Health (HealthRequest) returns (HealthReply) {}
@@ -248,4 +320,6 @@ service FossilDB {
     // This also converts files written with other compression types (e.g. snappy) to lz4/zstd.
     rpc CompactAllData (CompactAllDataRequest) returns (CompactAllDataReply) {}
     rpc ExportDB (ExportDBRequest) returns (ExportDBReply) {}
+    // Returns information about the database and its collections, read from metadata without scanning data
+    rpc GetDatabaseInfo (GetDatabaseInfoRequest) returns (GetDatabaseInfoReply) {}
 }

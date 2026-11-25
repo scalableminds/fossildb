@@ -1,0 +1,5 @@
+__pycache__/
+.venv/
+# Generated from ../src/main/protobuf/fossildbapi.proto on first start
+src/fossildb_gui/api/fossildbapi_pb2*.py
+.pytest_cache/
