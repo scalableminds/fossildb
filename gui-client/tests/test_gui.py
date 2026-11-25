@@ -79,7 +79,8 @@ def test_browse_keys_and_values(window):
     record._versions_view.setCurrentIndex(record._versions_model.index(1))
     wait_until(lambda: record._structure_model.rowCount() == 7)
     # Expand and collapse all; field 5 is a nested message
-    view, model = record._structure_view, record._structure_model
+    view = record._structure_view
+    model = view.model()
     record._structure_expand_button.click()
     assert view.isExpanded(model.index(4, 0))
     record._structure_collapse_button.click()
@@ -215,7 +216,8 @@ def test_json_and_text_tabs(window):
     assert record._tabs.currentIndex() == record._json_tab
     assert record._json.toPlainText() == '{\n  "a": [\n    1,\n    2\n  ]\n}'
     # The tree is expanded, since the document is small
-    model, tree = record._json_model, record._json_tree
+    tree = record._json_tree
+    model = tree.model()
     assert model.index(0, 1).data() == "[1, 2]" and tree.isExpanded(model.index(0, 0))
     assert record._json_stack.currentWidget() is tree
     # The summary of an expanded array is dimmed, its items are not
@@ -721,3 +723,135 @@ def test_tree_model_column_tooltips(qt_app):
     model.set_root(root_node([Node(("x", "y"), tooltip="row", column_tooltips={1: "cell"})]))
     assert model.index(0, 0).data(Qt.ItemDataRole.ToolTipRole) == "row"
     assert model.index(0, 1).data(Qt.ItemDataRole.ToolTipRole) == "cell"
+
+
+def test_backup_and_export(window, monkeypatch):
+    fake, window = window
+    assert not window._backup_action.isEnabled()
+    window._writes_action.setChecked(True)
+    assert window._backup_action.isEnabled() and window._export_action.isEnabled()
+    monkeypatch.setattr(window, "confirm_write", lambda *args, **kwargs: True)
+
+    window._backup()
+    wait_until(lambda: fake.backups == 1 and not window._running)
+    assert window.statusBar().currentMessage() == "Backup 1 created (1.5 MB)"
+
+    from fossildb_gui import main_window
+
+    monkeypatch.setattr(main_window._ExportDialog, "exec", lambda self: main_window.QDialog.DialogCode.Accepted)
+    monkeypatch.setattr(main_window._ExportDialog, "values", lambda self: ("/srv/export", None))
+    window._export()
+    assert not window._backup_action.isEnabled()  # one operation at a time
+    wait_until(lambda: fake.exports == [("/srv/export", None)] and not window._running)
+    assert window._backup_action.isEnabled()
+
+
+def test_guess_button(window, tmp_path):
+    from test_schemas import OTHER, PROTO
+
+    from fossildb_gui import settings
+
+    fake, window = window
+    (tmp_path / "skeleton.proto").write_text(PROTO)
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "other.proto").write_text(OTHER)
+    schemas = window._schemas
+    schemas.load(str(tmp_path))
+    wait_until(lambda: schemas.schemas is not None)
+    cls = schemas.schemas.message_class("test.Skeleton")
+    fake.put("collectionA", "skeleton", 0, cls(id=1, kind=1).SerializeToString())
+    settings.set_message_type_for("collectionA", "")
+    browser = open_collection(window)
+    record = browser.record
+    record.show_key("skeleton")
+    wait_until(lambda: ("skeleton", 0) in record._values)
+    record._guess_button.click()
+    wait_until(lambda: record._type_combo.currentText() == "test.Skeleton")
+    assert settings.message_type_for("collectionA") == "test.Skeleton"
+    assert window.statusBar().currentMessage().startswith("Guessed test.Skeleton: knows all 2 fields")
+    wait_until(lambda: record._typed_model.rowCount() == 2)
+
+    # The typed value as JSON, with the field names of the schema (int64 is a string in protobuf's JSON)
+    import json
+
+    QApplication.clipboard().clear()
+    record._copy_json()
+    wait_until(lambda: QApplication.clipboard().text())
+    assert json.loads(QApplication.clipboard().text()) == {"id": "1", "kind": "VOLUME"}
+
+
+def test_filter_trees(window):
+    fake, window = window
+    fake.put("collectionA", "doc", 0, b'{"a": [1, {"b": "needle"}], "c": "x", "needle2": 5, "group": {"e": 1}}')
+    record = open_collection(window).record
+    record.show_key("doc")
+    wait_until(lambda: record._json_model.rowCount() == 4)
+    tree, field = record._json_tree, record._json_filter
+    proxy = tree.model()
+
+    def rows(parent=None):
+        from PySide6.QtCore import QModelIndex
+
+        parent = parent or QModelIndex()
+        return [proxy.index(row, 0, parent).data() for row in range(proxy.rowCount(parent))]
+
+    field.setText("NEEDLE")  # case doesn't matter
+    wait_until(lambda: rows() == ["a", "needle2"])
+    a = proxy.index(0, 0)
+    assert rows(a) == ["1"] and tree.isExpanded(a)  # the parent of the match, expanded
+    # The contents of a matching row stay visible
+    field.setText("group")
+    wait_until(lambda: rows() == ["group"])
+    assert rows(proxy.index(0, 0)) == ["e"]
+    field.clear()
+    wait_until(lambda: rows() == ["a", "c", "needle2", "group"])
+
+
+def test_many_versions(window, monkeypatch):
+    from fossildb_gui import key_browser, record_view
+
+    fake, window = window
+    monkeypatch.setattr(record_view, "VERSIONS_PAGE_SIZE", 10)
+    monkeypatch.setattr(record_view, "VERSIONS_PREFETCH_ROWS", 2)
+    monkeypatch.setattr(key_browser, "MAX_VERSION_COUNT", 20)
+    for version in range(0, 50, 2):  # 25 versions: 0, 2, …, 48
+        fake.put("collectionA", "many", version, bytes(version))
+    browser = open_collection(window)
+    record = browser.record
+    record.show_key("many")
+    wait_until(lambda: len(record._versions) >= 10)
+    assert record._versions[:3] == [48, 46, 44] and record._versions_label.text().endswith("+ versions")
+    # Scrolling to the end loads the older ones
+    view = record.versions_view
+
+    def scrolled_to_end():
+        view.scrollToBottom()
+        return not record._more_versions and not record._loading_versions
+
+    wait_until(scrolled_to_end)
+    assert record._versions == list(range(48, -1, -2)) and record._versions_label.text() == "25 versions"
+
+    # Going to a version that doesn't exist shows the next older one
+    record._go_to_version.setText("7")
+    record._go_to_version.returnPressed.emit()
+    wait_until(lambda: "Version 6" in record._value_label.text())
+    assert "there is no version 7" in record._value_label.text() and record._version == 6
+
+    # The key list counts versions only up to MAX_VERSION_COUNT
+    browser._model.reset("many")
+    wait_until(lambda: browser._model.index(0, 1).data() == "20+")
+
+
+def test_measuring_lists_all_versions_first(window, monkeypatch):
+    from fossildb_gui import record_view
+
+    fake, window = window
+    monkeypatch.setattr(record_view, "VERSIONS_PAGE_SIZE", 5)
+    for version in range(12):
+        fake.put("collectionA", "many", version, bytes(10))
+    record = open_collection(window).record
+    record.show_key("many")
+    wait_until(lambda: len(record._versions) == 5 and record._measure_button.isEnabled())
+    record._measure_button.click()
+    wait_until(lambda: not record._measuring)
+    assert len(record._versions) == 12 and "in 12 versions" in record._measure_label.text()

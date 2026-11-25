@@ -2,7 +2,7 @@
 
 from typing import Callable, Iterable
 
-from PySide6.QtCore import QAbstractItemModel, QModelIndex, QPersistentModelIndex, Qt
+from PySide6.QtCore import QAbstractItemModel, QModelIndex, QPersistentModelIndex, QSortFilterProxyModel, Qt
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QApplication, QStyle, QStyledItemDelegate, QStyleOptionViewItem
 
@@ -160,3 +160,33 @@ def take_list_key(view, event) -> bool:
     else:
         view.setCurrentIndex(view.model().index(0, 0))
     return True
+
+
+class FilterProxy(QSortFilterProxyModel):
+    """Shows the rows whose text contains the filter (in any column), with their parents and children."""
+
+    def __init__(self, source: TreeModel, parent=None):
+        super().__init__(parent)
+        self.setSourceModel(source)
+        self.setRecursiveFilteringEnabled(True)  # parents of matches
+        self.setAutoAcceptChildRows(True)  # children of matches, e.g. the fields of a matching message
+        self._text = ""
+
+    @property
+    def text(self) -> str:
+        return self._text
+
+    def set_text(self, text: str) -> None:
+        if hasattr(self, "beginFilterChange"):  # Qt >= 6.10; invalidateRowsFilter is deprecated there
+            self.beginFilterChange()
+            self._text = text.strip().casefold()
+            self.endFilterChange(QSortFilterProxyModel.Direction.Rows)
+        else:
+            self._text = text.strip().casefold()
+            self.invalidateRowsFilter()
+
+    def filterAcceptsRow(self, source_row: int, source_parent) -> bool:
+        if not self._text:
+            return True
+        node = self.sourceModel().index(source_row, 0, source_parent).internalPointer()
+        return any(self._text in column.casefold() for column in node.columns)

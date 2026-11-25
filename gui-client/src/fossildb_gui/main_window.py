@@ -6,6 +6,9 @@ from PySide6.QtCore import QPoint, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
     QFileDialog,
     QInputDialog,
     QLabel,
@@ -13,6 +16,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QTabWidget,
+    QVBoxLayout,
 )
 
 from fossildb_gui import __version__, fmt, settings
@@ -31,6 +35,35 @@ def _set_size_units(decimal: bool) -> None:
             widget.redisplay()
 
 
+class _ExportDialog(QDialog):
+    """Asks for the directory on the server to export the database into, and an optional RocksDB options file."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Export to New Directory")
+        self._directory = QLineEdit()
+        self._directory.setPlaceholderText("e.g. /srv/fossildb/export-2026-11")
+        self._options = QLineEdit()
+        self._options.setPlaceholderText("optional, e.g. /srv/fossildb/options.ini")
+        form = QFormLayout()
+        form.addRow(QLabel("Paths on the server, not on this computer."))
+        form.addRow("New data directory:", self._directory)
+        form.addRow("RocksDB options file:", self._options)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        self._ok = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        self._ok.setEnabled(False)
+        self._directory.textChanged.connect(lambda text: self._ok.setEnabled(bool(text.strip())))
+        layout = QVBoxLayout(self)
+        layout.addLayout(form)
+        layout.addWidget(buttons)
+        self.setMinimumWidth(480)
+
+    def values(self) -> tuple[str, str | None]:
+        return self._directory.text().strip(), self._options.text().strip() or None
+
+
 class MainWindow(QMainWindow):
     new_connection_requested = Signal()
 
@@ -46,7 +79,7 @@ class MainWindow(QMainWindow):
         self._info_latest = Latest()
         self._info_loading = False
         self.writes_enabled = False
-        self._compacting = False
+        self._running: set[str] = set()  # long server operations, e.g. "Compaction"
 
         self._overview = OverviewWidget(spec)
         self._overview.open_collection.connect(self.open_collection)
@@ -96,10 +129,12 @@ class MainWindow(QMainWindow):
         database_menu.addAction("Filter Keys", QKeySequence.StandardKey.Find, self._focus_filter)
         database_menu.addSeparator()
         self._writes_action = QAction("Enable Writes", self, checkable=True)
-        self._writes_action.setToolTip("Allow deleting data and compacting the database on this connection")
+        self._writes_action.setToolTip("Allow deleting data, compactions, backups and exports on this connection")
         self._writes_action.toggled.connect(self._set_writes_enabled)
         database_menu.addAction(self._writes_action)
         self._compact_action = database_menu.addAction("Compact All Data…", self._compact)
+        self._backup_action = database_menu.addAction("Create Backup…", self._backup)
+        self._export_action = database_menu.addAction("Export to New Directory…", self._export)
 
         schema_menu = self.menuBar().addMenu("&Schemas")
         schema_menu.addAction("Load .proto Folder…", self._choose_schema_folder)
@@ -179,7 +214,7 @@ class MainWindow(QMainWindow):
         generation = self._info_latest.next()
         self._info_loading = True
         if not quiet:
-            self.statusBar().showMessage("Refreshing…")
+            self.statusBar().showMessage(self._REFRESHING)
         self._runner.submit(
             self._connection.database_info,
             self._info_latest.wrap(generation, self._info_loaded),
@@ -196,9 +231,13 @@ class MainWindow(QMainWindow):
         self._info_loading = False
         self.statusBar().showMessage(f"Refresh failed: {error}")
 
+    _REFRESHING = "Refreshing…"
+
     def _info_loaded(self, info) -> None:
         self._info_loading = False
-        self.statusBar().clearMessage()
+        # Only its own message, e.g. not that a backup finished
+        if self.statusBar().currentMessage() == self._REFRESHING:
+            self.statusBar().clearMessage()
         self._overview.set_info(info)
 
     # Writes
@@ -216,7 +255,10 @@ class MainWindow(QMainWindow):
             self._write_label.setText("<b style='color:#d33'>Writes enabled</b>")
         else:
             self._write_label.setText("Read-only")
-        self._compact_action.setEnabled(self.writes_enabled and not self._compacting)
+        # The server refuses some operations while others run, e.g. no backup during a compaction
+        idle = not self._running
+        for action in (self._compact_action, self._backup_action, self._export_action):
+            action.setEnabled(self.writes_enabled and idle)
         for index in range(1, self._tabs.count()):
             self._tabs.widget(index).update_write_actions()
 
@@ -240,30 +282,63 @@ class MainWindow(QMainWindow):
         return ok and typed == require_text
 
     def _compact(self) -> None:
-        if not self.confirm_write(
+        if self.confirm_write(
             "Compact All Data",
             "Rewrite all data files of the database? This removes deleted and overwritten entries and converts old "
             "files to the current compression.\n\nIt causes heavy disk load and can take hours on large databases. "
             "Backups and restores are not possible while it runs.",
         ):
-            return
-        self._compacting = True
-        self._update_write_state()
-        self.statusBar().showMessage("Compacting all data… (this can take long)")
+            self._run_operation("Compaction", self._connection.compact_all_data, lambda _: "Compaction finished")
 
-        def finished(error: Exception | None) -> None:
-            self._compacting = False
+    def _backup(self) -> None:
+        if self.confirm_write(
+            "Create Backup",
+            "Create a backup in the server's backup directory? It replaces the previous backup, since the server "
+            "keeps only the newest one. Only data files that changed since then are copied.\n\nThis can take long and "
+            "causes disk load. Writes continue meanwhile.",
+        ):
+            self._run_operation(
+                "Backup",
+                self._connection.backup,
+                lambda reply: f"Backup {reply.id} created ({fmt.size(reply.size)})",
+            )
+
+    def _export(self) -> None:
+        dialog = _ExportDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        directory, options_file = dialog.values()
+        if self.confirm_write(
+            "Export to New Directory",
+            f"Copy the whole database into {directory} on the server"
+            + (f", with the RocksDB options from {options_file}" if options_file else "")
+            + "?\n\nThis reads and writes all data, which can take hours on large databases, and needs as much free "
+            "disk space as the database itself.",
+        ):
+            self._run_operation(
+                "Export",
+                lambda: self._connection.export_db(directory, options_file),
+                lambda _: f"Export to {directory} finished",
+            )
+
+    def _run_operation(self, name: str, call, done_message) -> None:
+        """Runs a long server operation in the background, with its progress in the status bar."""
+        self._running.add(name)
+        self._update_write_state()
+        self.statusBar().showMessage(f"{name} running on the server… (this can take long)")
+        self.refresh_info(quiet=True)  # the overview shows what runs
+
+        def finished(result, error: Exception | None) -> None:
+            self._running.discard(name)
             self._update_write_state()
             if error is None:
-                self.statusBar().showMessage("Compaction finished", 10000)
-                self.refresh_info()
+                self.statusBar().showMessage(done_message(result), 15000)
             else:
                 self.statusBar().clearMessage()
-                QMessageBox.critical(self, "Compaction failed", str(error))
+                QMessageBox.critical(self, f"{name} failed", str(error))
+            self.refresh_info(quiet=True)
 
-        self._runner.submit(
-            self._connection.compact_all_data, lambda _: finished(None), finished, context=self
-        )
+        self._runner.submit(call, lambda result: finished(result, None), lambda e: finished(None, e), context=self)
 
     # Schemas
 
@@ -307,11 +382,12 @@ class MainWindow(QMainWindow):
         super().keyPressEvent(event)
 
     def closeEvent(self, event) -> None:
-        if self._compacting:
+        if self._running:
+            running = ", ".join(sorted(self._running))
             answer = QMessageBox.question(
                 self,
-                "Compaction running",
-                "CompactAllData is still running on the server. It continues there if you close this window, but you "
+                f"{running} running",
+                f"{running} is still running on the server. It continues there if you close this window, but you "
                 "won't be notified when it finishes. Close anyway?",
             )
             if answer != QMessageBox.StandardButton.Yes:

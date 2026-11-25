@@ -5,8 +5,8 @@ import re
 from collections import OrderedDict
 from pathlib import Path
 
-from PySide6.QtCore import QStringListModel, Qt, Signal
-from PySide6.QtGui import QFontDatabase, QGuiApplication, QPalette
+from PySide6.QtCore import QRegularExpression, QStringListModel, Qt, QTimer, Signal
+from PySide6.QtGui import QFontDatabase, QGuiApplication, QPalette, QRegularExpressionValidator
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListView,
     QMenu,
     QMessageBox,
@@ -32,7 +33,7 @@ from PySide6.QtWidgets import (
 from fossildb_gui import decoding, fmt, settings, wire
 from fossildb_gui.schema_manager import SchemaManager
 from fossildb_gui.tasks import Latest, TaskRunner
-from fossildb_gui.tree import MAX_CHILDREN, PaddedDelegate, TreeModel, root_node
+from fossildb_gui.tree import MAX_CHILDREN, FilterProxy, PaddedDelegate, TreeModel, root_node
 
 HEX_DUMP_LIMIT = 256 * 1024
 TEXT_LIMIT = 1024 * 1024
@@ -58,9 +59,33 @@ def _add_expand_buttons(layout: QHBoxLayout, view: QTreeView) -> tuple[QToolButt
     return expand, collapse
 
 
+def _add_filter(layout: QHBoxLayout, view: QTreeView) -> QLineEdit:
+    """Adds a field that filters the view's rows, for a view made by _tree_view."""
+    field = QLineEdit()
+    field.setPlaceholderText("Filter")
+    field.setToolTip("Shows the rows that contain this text, with their parents and contents")
+    field.setClearButtonEnabled(True)
+    field.setMaximumWidth(260)
+    proxy: FilterProxy = view.model()
+    # Filtering looks at the whole value, also at parts not expanded yet, which takes a moment for large ones
+    timer = QTimer(field, singleShot=True, interval=250)
+    field.textChanged.connect(lambda: timer.start())
+
+    def apply() -> None:
+        proxy.set_text(field.text())
+        if proxy.text:
+            view.expandAll()
+
+    timer.timeout.connect(apply)
+    # A new value keeps the filter, and shows its matches
+    proxy.modelReset.connect(lambda: proxy.text and QTimer.singleShot(0, view.expandAll))
+    layout.addWidget(field)
+    return field
+
+
 def _tree_view(model: TreeModel, widths: list[int]) -> QTreeView:
     view = QTreeView()
-    view.setModel(model)
+    view.setModel(FilterProxy(model, view))
     for column, width in enumerate(widths):
         view.header().resizeSection(column, width)
     view.setUniformRowHeights(True)  # much faster for long lists
@@ -139,16 +164,28 @@ def _decode_typed(data: bytes, message_class):
     try:
         message.ParseFromString(data)
     except Exception as e:
-        return None, f"Could not decode as {message_class.DESCRIPTOR.full_name}: {e}"
+        return None, f"Could not decode as {message_class.DESCRIPTOR.full_name}: {e}", None
     note = None
     if not message.IsInitialized():
         missing = ", ".join(message.FindInitializationErrors())
         note = f"Required fields are missing ({missing}). Is the right message type selected?"
-    return decoding.message_nodes(message), note
+    return decoding.message_nodes(message), note, message
+
+
+def _message_json(message) -> str:
+    from google.protobuf import json_format
+
+    # Field names as in the .proto files; fields that the schema doesn't know are left out
+    return json_format.MessageToJson(message, preserving_proto_field_name=True, indent=2, ensure_ascii=False)
 
 
 # Wide splitter handles leave space between the panels, and all of that space can be dragged
 SPLITTER_HANDLE_WIDTH = 9
+
+# Versions are listed page by page, newest first; more are loaded while scrolling
+VERSIONS_PAGE_SIZE = 1000
+# Loading more versions starts when fewer than this are left below the visible ones
+VERSIONS_PREFETCH_ROWS = 100
 
 # Measuring the total size downloads all versions, in requests of about this size
 MEASURE_TARGET_BYTES = 16 << 20
@@ -174,6 +211,8 @@ class RecordView(QWidget):
         self._latest_value = Latest()
         self._user_chose_tab = False
         self._reselect: int | None = None  # version to select after reloading
+        self._more_versions = False  # older versions exist that are not listed yet
+        self._loading_versions = False
         self._sizes: dict[int, int] = {}  # measured value size per version
         self._shown_sizes: dict[int, int] = {}  # sizes in the version list, measured or of loaded values
         self._latest_measure = Latest()
@@ -200,6 +239,15 @@ class RecordView(QWidget):
         versions_layout.setContentsMargins(0, 0, 0, 0)
         versions_layout.addWidget(self._versions_label)
         versions_layout.addWidget(self._versions_view)
+        self._go_to_version = QLineEdit()
+        self._go_to_version.setPlaceholderText("Go to version (Enter)")
+        self._go_to_version.setValidator(QRegularExpressionValidator(QRegularExpression(r"\d{1,19}"), self))
+        self._go_to_version.setClearButtonEnabled(True)
+        self._go_to_version.returnPressed.connect(self._go_to_version_entered)
+        versions_layout.addWidget(self._go_to_version)
+        scroll_bar = self._versions_view.verticalScrollBar()
+        scroll_bar.valueChanged.connect(self._prefetch_versions)
+        scroll_bar.rangeChanged.connect(self._prefetch_versions)
         self._measure_button = QPushButton("Measure all sizes")
         self._measure_button.setToolTip(
             "Adds up the sizes of all versions of this key. FossilDB can't report sizes, so this downloads every "
@@ -239,6 +287,7 @@ class RecordView(QWidget):
             structure_bar, self._structure_view
         )
         structure_bar.addStretch()
+        self._structure_filter = _add_filter(structure_bar, self._structure_view)
         structure_layout.addLayout(structure_bar)
         structure_layout.addWidget(self._structure_note)
         structure_layout.addWidget(self._structure_view)
@@ -258,9 +307,26 @@ class RecordView(QWidget):
         type_row = QHBoxLayout()
         type_row.addWidget(QLabel(f"Message type for {collection}:"))
         type_row.addWidget(self._type_combo, stretch=1)
-        type_row.addSpacing(12)
-        _add_expand_buttons(type_row, self._typed_view)
+        self._guess_button = QToolButton(text="Guess")
+        self._guess_button.setToolTip("Find the message type that knows all fields of this value")
+        self._guess_button.clicked.connect(self._guess_type)
+        type_row.addWidget(self._guess_button)
+        typed_bar = QHBoxLayout()
+        _add_expand_buttons(typed_bar, self._typed_view)
+        self._typed_message = None
+        self._json_menu_button = QToolButton(text="JSON")
+        self._json_menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._json_menu_button.setToolTip("The value as JSON, with the field names of the .proto files")
+        json_menu = QMenu(self._json_menu_button)
+        json_menu.addAction("Copy as JSON", self._copy_json)
+        json_menu.addAction("Save as JSON…", self._save_json)
+        self._json_menu_button.setMenu(json_menu)
+        self._json_menu_button.setEnabled(False)
+        typed_bar.addWidget(self._json_menu_button)
+        typed_bar.addStretch()
+        self._typed_filter = _add_filter(typed_bar, self._typed_view)
         typed_layout.addLayout(type_row)
+        typed_layout.addLayout(typed_bar)
         typed_layout.addWidget(self._typed_note)
         typed_layout.addWidget(self._typed_view)
 
@@ -293,6 +359,7 @@ class RecordView(QWidget):
         json_bar.addSpacing(12)
         self._json_expand_button, self._json_collapse_button = _add_expand_buttons(json_bar, self._json_tree)
         json_bar.addStretch()
+        self._json_filter = _add_filter(json_bar, self._json_tree)
         json_tab = QWidget()
         json_layout = QVBoxLayout(json_tab)
         json_layout.addLayout(json_bar)
@@ -377,8 +444,11 @@ class RecordView(QWidget):
         created = fmt.object_id_date(key)
         self._title.setText(f"{self._collection} / {key}" + (f"  (ObjectId created {created})" if created else ""))
         self._versions_label.setText("Loading versions…")
+        self._more_versions = False
+        self._loading_versions = True
         self._runner.submit(
-            lambda: self._connection.list_versions(self._collection, key),
+            # One more than a page, to know whether there are more
+            lambda: self._connection.list_versions(self._collection, key, VERSIONS_PAGE_SIZE + 1),
             self._latest_versions.wrap(generation, self._versions_loaded),
             self._latest_versions.wrap(generation, self._versions_failed),
             context=self,
@@ -391,9 +461,14 @@ class RecordView(QWidget):
         self._reselect = reselect
 
     def _versions_loaded(self, versions: list[int]) -> None:
+        self._loading_versions = False
+        self._more_versions = len(versions) > VERSIONS_PAGE_SIZE
+        versions = versions[:VERSIONS_PAGE_SIZE]
         self._versions = versions
         self._versions_model.setStringList([str(v) for v in versions])
-        self._versions_label.setText(f"{fmt.count(len(versions))} versions" if len(versions) != 1 else "1 version")
+        self._update_versions_label()
+        # Without a scroll bar (all fit), no scrolling would ever load more, so check once the list is laid out
+        QTimer.singleShot(0, self._prefetch_versions)
         self._measure_button.setEnabled(bool(versions))
         self.update_write_actions()
         if not versions:
@@ -403,7 +478,72 @@ class RecordView(QWidget):
         self._reselect = None
         self._versions_view.setCurrentIndex(self._versions_model.index(row))
 
+    def _update_versions_label(self) -> None:
+        count = len(self._versions)
+        if self._more_versions:
+            self._versions_label.setText(f"{fmt.count(count)}+ versions")
+            self._versions_label.setToolTip("Scroll down for older ones")
+        else:
+            self._versions_label.setText(f"{fmt.count(count)} versions" if count != 1 else "1 version")
+            self._versions_label.setToolTip("")
+
+    def _prefetch_versions(self) -> None:
+        if not self._more_versions or self._loading_versions:
+            return
+        view = self._versions_view
+        last_visible = view.indexAt(view.viewport().rect().bottomLeft()).row()
+        if last_visible == -1 or len(self._versions) - 1 - last_visible < VERSIONS_PREFETCH_ROWS:
+            self._load_more_versions()
+
+    def _load_more_versions(self) -> None:
+        self._loading_versions = True
+        key, offset = self._key, len(self._versions)
+        generation = self._latest_versions.current()
+        self._runner.submit(
+            lambda: self._connection.list_versions(self._collection, key, VERSIONS_PAGE_SIZE + 1, offset),
+            self._latest_versions.wrap(generation, self._more_versions_loaded),
+            self._latest_versions.wrap(generation, self._versions_failed),
+            context=self,
+        )
+
+    def _more_versions_loaded(self, versions: list[int]) -> None:
+        self._loading_versions = False
+        self._more_versions = len(versions) > VERSIONS_PAGE_SIZE
+        self._append_versions(versions[:VERSIONS_PAGE_SIZE])
+        self._update_versions_label()
+        QTimer.singleShot(0, self._prefetch_versions)  # e.g. scrolled to the end meanwhile, or all fit
+
+    def _append_versions(self, versions: list[int]) -> None:
+        # New versions may have been written meanwhile, which shifts the pages
+        known = set(self._versions)
+        versions = [v for v in versions if v not in known]
+        if not versions:
+            return
+        start = len(self._versions)
+        self._versions.extend(versions)
+        model = self._versions_model
+        model.insertRows(start, len(versions))
+        for row, version in enumerate(versions, start):
+            model.setData(model.index(row), str(version))
+
+    def _go_to_version_entered(self) -> None:
+        text = self._go_to_version.text()
+        if not text or self._key is None:
+            return
+        version = int(text)
+        if version in self._versions:
+            self._versions_view.setCurrentIndex(self._versions_model.index(self._versions.index(version)))
+            self._versions_view.scrollTo(self._versions_view.currentIndex())
+            return
+        # Not listed (yet): load it directly
+        self._versions_view.selectionModel().clearCurrentIndex()
+        self._versions_view.clearSelection()
+        self._version = version
+        self.update_write_actions()
+        self._load_value()
+
     def _versions_failed(self, error: Exception) -> None:
+        self._loading_versions = False
         self._versions_label.setText("Could not load versions")
         self._value_label.setText(str(error))
 
@@ -424,8 +564,28 @@ class RecordView(QWidget):
             return
         self._sizes = {}
         self._set_measuring(True)
-        self._measure_label.setText("Measuring…")
-        self._measure_from(self._latest_measure.next(), 0, MEASURE_FIRST_REQUEST_VERSIONS)
+        generation = self._latest_measure.next()
+        if not self._more_versions:
+            self._measure_label.setText("Measuring…")
+            self._measure_from(generation, 0, MEASURE_FIRST_REQUEST_VERSIONS)
+            return
+        # All versions are measured, so the rest of the list is needed first
+        self._measure_label.setText("Listing all versions…")
+        key = self._key
+
+        def listed(versions: list[int]) -> None:
+            self._more_versions = False
+            self._append_versions(versions)
+            self._update_versions_label()
+            self._measure_label.setText("Measuring…")
+            self._measure_from(generation, 0, MEASURE_FIRST_REQUEST_VERSIONS)
+
+        self._runner.submit(
+            lambda: self._connection.list_versions(self._collection, key),
+            self._latest_measure.wrap(generation, listed),
+            self._latest_measure.wrap(generation, self._measuring_failed),
+            context=self,
+        )
 
     def _set_measuring(self, measuring: bool) -> None:
         self._measuring = measuring
@@ -528,8 +688,11 @@ class RecordView(QWidget):
 
         def load():
             cached = self._values.get((key, version))
-            data = cached if cached is not None else self._connection.get(self._collection, key, version)
-            return data, _decode(data, message_class)
+            if cached is not None:
+                data, actual = cached, version
+            else:
+                data, actual = self._connection.get_version(self._collection, key, version)
+            return actual, data, _decode(data, message_class)
 
         self._runner.submit(
             load,
@@ -538,14 +701,23 @@ class RecordView(QWidget):
             context=self,
         )
 
-    def _value_loaded(self, key: str, version: int, data: bytes, decoded) -> None:
+    def _value_loaded(self, key: str, requested: int, version: int, data: bytes, decoded) -> None:
+        # From "Go to version", a version that doesn't exist gives the next older one
+        self._version = version
+        self.update_write_actions()
         self._values[(key, version)] = data
         self._values.move_to_end((key, version))
         while len(self._values) > _CACHED_VALUES:
             self._values.popitem(last=False)
         self._download_button.setEnabled(True)
         self._show_version_sizes([(version, len(data))])
-        self._value_label.setText(f"Version {version} · {fmt.size(len(data))} ({fmt.count(len(data))} byte{'s' if len(data) != 1 else ''})")
+        size = f"{fmt.size(len(data))} ({fmt.count(len(data))} byte{'s' if len(data) != 1 else ''})"
+        older = f" (there is no version {requested}, this is the next older one)" if version != requested else ""
+        self._value_label.setText(f"Version {version} · {size}{older}")
+        if version in self._versions and not self._versions_view.currentIndex().isValid():
+            self._versions_view.selectionModel().blockSignals(True)
+            self._versions_view.setCurrentIndex(self._versions_model.index(self._versions.index(version)))
+            self._versions_view.selectionModel().blockSignals(False)
 
         (structure, structure_note), typed, text, (json_text, json_nodes, json_note), hex_text = decoded
         self._structure_model.set_root(root_node(structure or []))
@@ -598,14 +770,17 @@ class RecordView(QWidget):
         self._json_stack.setCurrentWidget(self._json_tree if tree else self._json)
         self._json_expand_button.setEnabled(tree)
         self._json_collapse_button.setEnabled(tree)
+        self._json_filter.setEnabled(tree)
 
     def _show_typed(self, typed) -> None:
+        self._typed_message = typed[2] if typed is not None else None
+        self._json_menu_button.setEnabled(self._typed_message is not None)
         if typed is None:
             self._typed_model.set_root(root_node([]))
             self._typed_note.setText(self._typed_hint())
             self._typed_note.setVisible(True)
             return
-        nodes, note = typed
+        nodes, note, _ = typed
         self._typed_model.set_root(root_node(nodes or []))
         self._typed_note.setText(note or "")
         self._typed_note.setVisible(bool(note))
@@ -647,6 +822,43 @@ class RecordView(QWidget):
         if not names:
             self._typed_note.setText(self._typed_hint())
 
+    def _guess_type(self) -> None:
+        schemas = self._schemas.schemas
+        data = self._values.get((self._key, self._version))
+        if schemas is None or data is None:
+            self._window.statusBar().showMessage("Load .proto files and select a version first", 8000)
+            return
+        self._guess_button.setEnabled(False)
+        self._window.statusBar().showMessage(f"Trying {fmt.count(len(schemas.message_names))} message types…")
+        key, version = self._key, self._version
+
+        def done(guesses) -> None:
+            self._guess_button.setEnabled(True)
+            if (key, version) != (self._key, self._version):
+                return
+            self._window.statusBar().showMessage(self._guess_result(guesses), 20000)
+
+        def failed(error: Exception) -> None:
+            self._guess_button.setEnabled(True)
+            self._window.statusBar().showMessage(f"Guessing failed: {error}", 20000)
+
+        self._runner.submit(lambda: decoding.guess_message_types(data, schemas), done, failed, context=self)
+
+    def _guess_result(self, guesses) -> str:
+        """Chooses the best fitting type, and says why."""
+        fitting = [g for g in guesses if g.fits]
+        if not fitting:
+            if not guesses:
+                return "No message type can parse this value"
+            closest = guesses[0]
+            return f"No message type knows all fields of this value. Closest: {closest.name} ({fmt.count(closest.unknown)} unknown)"
+        best = fitting[0]
+        self._type_combo.setCurrentText(best.name)
+        self._type_chosen(0)
+        others = [g.name for g in fitting[1:4] if g.known == best.known]
+        also = f". Equally possible: {', '.join(others)}" if others else ""
+        return f"Guessed {best.name}: knows all {fmt.count(best.known)} fields{also}"
+
     def _type_chosen(self, _index: int) -> None:
         name = self._type_combo.currentText()
         settings.set_message_type_for(self._collection, "" if name == _NO_TYPE else name)
@@ -660,6 +872,32 @@ class RecordView(QWidget):
             self._load_value()
 
     # Actions
+
+    def _copy_json(self) -> None:
+        self._with_json(lambda text: (
+            QGuiApplication.clipboard().setText(text),
+            self._window.statusBar().showMessage(f"Copied {fmt.size(len(text.encode()))} of JSON", 8000),
+        ))
+
+    def _save_json(self) -> None:
+        name = _sanitize_filename(f"{self._collection}_{self._key}_{self._version}") + ".json"
+        path, _ = QFileDialog.getSaveFileName(self, "Save as JSON", str(Path.home() / name), "JSON (*.json)")
+        if path:
+            self._with_json(lambda text: (
+                Path(path).write_text(text, encoding="utf-8"),
+                self._window.statusBar().showMessage(f"Saved JSON to {path}", 8000),
+            ))
+
+    def _with_json(self, use) -> None:
+        """Converts the typed value to JSON in the background, which can take a moment for large ones."""
+        message = self._typed_message
+        if message is not None:
+            self._runner.submit(
+                lambda: _message_json(message),
+                use,
+                lambda e: self._window.statusBar().showMessage(f"Converting to JSON failed: {e}", 10000),
+                context=self,
+            )
 
     def _download(self) -> None:
         data = self._values.get((self._key, self._version))

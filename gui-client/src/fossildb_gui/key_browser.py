@@ -31,6 +31,8 @@ PAGE_SIZE = 100
 MAX_VERSION_COUNT_REQUESTS = 3
 # The next page is loaded once fewer rows than this are left below the visible ones
 PREFETCH_ROWS = 50
+# Counting versions stops here, since it means listing them; more are shown as "10 000+"
+MAX_VERSION_COUNT = 10_000
 # Counting the keys that a prefix delete affects stops here
 MAX_COUNTED_KEYS = 10_000
 
@@ -151,7 +153,7 @@ class KeyListModel(QAbstractTableModel):
             key = self._count_queue.popleft()
             self._counts_in_flight += 1
             self._runner.submit(
-                lambda key=key: len(self._connection.list_versions(self._collection, key)),
+                lambda key=key: len(self._connection.list_versions(self._collection, key, MAX_VERSION_COUNT + 1)),
                 lambda n, key=key: self._version_count_loaded(key, n),
                 lambda e, key=key: self._version_count_loaded(key, "?"),
                 context=self,
@@ -196,7 +198,9 @@ class KeyListModel(QAbstractTableModel):
             if count is None:
                 self._request_version_count(key)
                 return ""
-            return fmt.count(count) if isinstance(count, int) else count
+            if isinstance(count, int):
+                return f"{fmt.count(MAX_VERSION_COUNT)}+" if count > MAX_VERSION_COUNT else fmt.count(count)
+            return count
         if role == Qt.ItemDataRole.TextAlignmentRole:
             return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         return None

@@ -17,8 +17,11 @@ class FakeFossilDB(pb_grpc.FossilDBServicer):
         self.legacy = legacy
         self.data: dict[str, dict[str, dict[int, bytes]]] = {"collectionA": {}, "collectionB": {}}
         self.compactions = 0
+        self.backups = 0
+        self.exports: list[tuple[str, str | None]] = []
         self.multiple_versions_requests = 0
         self.info_requests = 0
+        self.list_versions_requests = 0
         # Cleared to hold back ListKeys replies
         self.list_keys_gate = threading.Event()
         self.list_keys_gate.set()
@@ -101,14 +104,19 @@ class FakeFossilDB(pb_grpc.FossilDBServicer):
         return pb.ListKeysReply(success=True, keys=keys)
 
     def ListVersions(self, request, context):
-        versions = self.data[request.collection].get(request.key, {})
-        return pb.ListVersionsReply(success=True, versions=sorted(versions, reverse=True))
+        self.list_versions_requests += 1
+        versions = sorted(self.data[request.collection].get(request.key, {}), reverse=True)[request.offset :]
+        if request.HasField("limit"):
+            versions = versions[: request.limit]
+        return pb.ListVersionsReply(success=True, versions=versions)
 
     def Get(self, request, context):
+        # Like FossilDB: the newest version that is not newer than the requested one
         versions = self.data[request.collection].get(request.key, {})
-        if request.version not in versions:
+        found = [v for v in versions if v <= request.version]
+        if not found:
             return pb.GetReply(success=False, errorMessage="No such element", value=b"", actualVersion=0)
-        return pb.GetReply(success=True, value=versions[request.version], actualVersion=request.version)
+        return pb.GetReply(success=True, value=versions[max(found)], actualVersion=max(found))
 
     def GetMultipleVersions(self, request, context):
         self.multiple_versions_requests += 1
@@ -133,6 +141,14 @@ class FakeFossilDB(pb_grpc.FossilDBServicer):
         for key in [k for k in store if k.startswith(request.prefix)]:
             del store[key]
         return pb.DeleteAllByPrefixReply(success=True)
+
+    def Backup(self, request, context):
+        self.backups += 1
+        return pb.BackupReply(success=True, id=self.backups, timestamp=0, size=1_500_000)
+
+    def ExportDB(self, request, context):
+        self.exports.append((request.newDataDir, request.optionsFile if request.HasField("optionsFile") else None))
+        return pb.ExportDBReply(success=True)
 
     def CompactAllData(self, request, context):
         self.compactions += 1

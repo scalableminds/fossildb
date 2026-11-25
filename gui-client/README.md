@@ -34,21 +34,27 @@ the first start, and again whenever that file changes.
   instead; WEBKNOSSOS collections and recently used ones are suggested.
 - **Keys**: loaded page by page while scrolling, filtered by prefix. Version counts are loaded for visible rows.
   Any key can be opened directly by name.
+- **Versions**: listed newest first, 1 000 at a time, more while scrolling. "Go to version" opens any version
+  directly; if it doesn't exist, the next older one is shown. In the key list, version counts stop at 10 000.
 - **Values**, for each version:
   - *Protobuf (raw)*: protobuf wire format decoded without a schema, with other interpretations of each field
     (signed integers, floats, packed numbers).
   - *Protobuf (typed)*: decoded with a message type from `.proto` files (Schemas → Load .proto Folder…). The
-    message type is remembered per collection.
+    message type is remembered per collection. *Guess* finds the type that knows all fields of the value. The
+    *JSON* button copies or saves the value as JSON, with the field names of the schema.
   - *Text* and *JSON*: for values that are text, the first 1 MiB. JSON is shown as a collapsible tree, or
     pretty-printed (Raw).
   - *Hex*: hex dump of the first 256 KiB.
   - Numbers whose field or key name contains "timestamp" are also shown as ISO date (UTC), read as milliseconds
     or seconds, whichever gives a date between 1990 and 2100.
+  - The trees (Protobuf and JSON) can be filtered by text, keeping the matches with their parents and contents,
+    and expanded or collapsed completely. Hover over a size for its tag, length prefix and value bytes.
   - Tabs that don't apply to a value, e.g. Text for binary data, are disabled.
   - Download as a file.
 - **Writes** (off by default, Database → Enable Writes, per window): delete a version, delete all versions of a key,
-  delete all keys with a prefix, compact all data. Each asks for confirmation; deleting by prefix shows how many
-  keys match and requires typing the prefix.
+  delete all keys with a prefix, compact all data, create a backup (replaces the previous one; the server keeps only
+  the newest), export the database into a new directory on the server. Each asks for confirmation; deleting by
+  prefix shows how many keys match and requires typing the prefix.
 
 ## SSH tunnels
 

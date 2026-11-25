@@ -95,13 +95,22 @@ class Connection:
             request.prefix = prefix
         return list(self._call("ListKeys", request).keys)
 
-    def list_versions(self, collection: str, key: str) -> list[int]:
-        """All versions of the key, newest first."""
-        versions = self._call("ListVersions", pb.ListVersionsRequest(collection=collection, key=key)).versions
-        return sorted(versions, reverse=True)
+    def list_versions(self, collection: str, key: str, limit: int | None = None, offset: int = 0) -> list[int]:
+        """The versions of the key, newest first; with limit and offset a part of them, counted from the newest."""
+        request = pb.ListVersionsRequest(collection=collection, key=key)
+        if limit is not None:
+            request.limit = limit
+        if offset:
+            request.offset = offset
+        return sorted(self._call("ListVersions", request).versions, reverse=True)
 
     def get(self, collection: str, key: str, version: int) -> bytes:
-        return self._call("Get", pb.GetRequest(collection=collection, key=key, version=version)).value
+        return self.get_version(collection, key, version)[0]
+
+    def get_version(self, collection: str, key: str, version: int) -> tuple[bytes, int]:
+        """The value and its actual version: if the version doesn't exist, FossilDB returns the next older one."""
+        reply = self._call("Get", pb.GetRequest(collection=collection, key=key, version=version))
+        return reply.value, reply.actualVersion
 
     def version_sizes(self, collection: str, key: str, newest: int, oldest: int) -> list[tuple[int, int]]:
         """(version, value size) for the versions from newest to oldest. FossilDB can't report sizes, so this
@@ -120,6 +129,18 @@ class Connection:
     def delete_all_by_prefix(self, collection: str, prefix: str) -> None:
         # Can take long on large collections, so no timeout
         self._call("DeleteAllByPrefix", pb.DeleteAllByPrefixRequest(collection=collection, prefix=prefix), None)
+
+    def backup(self):
+        """Creates a backup in the server's backup directory. Returns the BackupReply (id, timestamp, size)."""
+        # Blocks until the backup is done, which can take long
+        return self._call("Backup", pb.BackupRequest(), None)
+
+    def export_db(self, new_data_dir: str, options_file: str | None = None) -> None:
+        """Copies the database into a new directory on the server, optionally with other RocksDB options."""
+        request = pb.ExportDBRequest(newDataDir=new_data_dir)
+        if options_file:
+            request.optionsFile = options_file
+        self._call("ExportDB", request, None)
 
     def compact_all_data(self) -> None:
         # Rewrites the whole database, which can take hours

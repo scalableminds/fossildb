@@ -155,3 +155,18 @@ def test_size_tooltips_add_up(tmp_path):
     assert sum(_tooltip_total(node) for node in raw) == len(data)
     fields, _ = wire.parse_message(data)
     assert [_tooltip_total(node) for node in raw] == [field.size for field in fields]
+
+
+def test_guess_message_types(schema_folder):
+    schemas = load_schemas(schema_folder)
+    cls = schemas.message_class("test.Skeleton")
+    message = cls(id=7, kind=1)
+    message.nodes.add(x=1.5)
+    message.other.name = "o"
+    guesses = decoding.guess_message_types(message.SerializeToString(), schemas)
+    assert guesses[0].name == "test.Skeleton" and guesses[0].fits and guesses[0].known == 6
+    # Other types see unknown fields, or miss the required id
+    assert all(not g.fits for g in guesses[1:])
+    other = schemas.message_class("test.other.Other")(name="just a name").SerializeToString()
+    assert decoding.guess_message_types(other, schemas)[0].name == "test.other.Other"
+

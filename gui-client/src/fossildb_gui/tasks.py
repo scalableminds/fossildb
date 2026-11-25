@@ -71,6 +71,10 @@ class Latest:
         self._generation += 1
         return self._generation
 
+    def current(self) -> int:
+        """The latest generation, e.g. for follow-up requests that belong to it."""
+        return self._generation
+
     def is_current(self, generation: int) -> bool:
         return generation == self._generation
 
