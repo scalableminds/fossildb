@@ -78,6 +78,13 @@ class Connection:
     def get(self, collection: str, key: str, version: int) -> bytes:
         return self._call("Get", pb.GetRequest(collection=collection, key=key, version=version)).value
 
+    def version_sizes(self, collection: str, key: str, newest: int, oldest: int) -> list[tuple[int, int]]:
+        """(version, value size) for the versions from newest to oldest. FossilDB can't report sizes, so this
+        downloads the values."""
+        request = pb.GetMultipleVersionsRequest(collection=collection, key=key, newestVersion=newest, oldestVersion=oldest)
+        reply = self._call("GetMultipleVersions", request)
+        return [(version, len(value)) for version, value in zip(reply.versions, reply.values)]
+
     def delete_version(self, collection: str, key: str, version: int) -> None:
         self._call("Delete", pb.DeleteRequest(collection=collection, key=key, version=version))
 

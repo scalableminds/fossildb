@@ -19,19 +19,27 @@ the first start, and again whenever that file changes.
 
 ## Features
 
-- **Overview**: server version, disk usage, write status, and statistics for every collection (estimated number of
-  versions, size on disk and uncompressed, compression, LSM levels, pending compaction, first and last key).
-  Double-click a collection to open it.
+- **Connections**: direct or through an SSH tunnel. Recent connections can be named, e.g. "production"; the name
+  is shown in the window title and in confirmations. Right-click a recent connection to rename or remove it.
+- **Overview**: server version, disk usage and write status, and a table of the collections: size on disk (with a
+  bar for comparison), estimated number of versions, compression, and warnings for pending compactions or many deletion
+  markers. Hover over a collection for all its statistics (uncompressed size, LSM levels, first and last key, …).
+  Open a collection with a left click or double-click, depending on the desktop setting; right-click to copy.
 - **Older servers** (from 0.1.37) can't list their collections or report statistics. Enter the collection name
   instead; WEBKNOSSOS collections and recently used ones are suggested.
 - **Keys**: loaded page by page while scrolling, filtered by prefix. Version counts are loaded for visible rows.
   Any key can be opened directly by name.
 - **Values**, for each version:
-  - *Structure*: protobuf wire format decoded without a schema, with other interpretations of each field
+  - *Protobuf (raw)*: protobuf wire format decoded without a schema, with other interpretations of each field
     (signed integers, floats, packed numbers).
-  - *Typed*: decoded with a message type from `.proto` files (Schemas → Load .proto Folder…). The message type is
-    remembered per collection.
+  - *Protobuf (typed)*: decoded with a message type from `.proto` files (Schemas → Load .proto Folder…). The
+    message type is remembered per collection.
+  - *Text* and *JSON*: for values that are text, the first 1 MiB. JSON is shown as a collapsible tree, or
+    pretty-printed (Raw).
   - *Hex*: hex dump of the first 256 KiB.
+  - Numbers whose field or key name contains "timestamp" are also shown as ISO date (UTC), read as milliseconds
+    or seconds, whichever gives a date between 1990 and 2100.
+  - Tabs that don't apply to a value, e.g. Text for binary data, are disabled.
   - Download as a file.
 - **Writes** (off by default, Database → Enable Writes, per window): delete a version, delete all versions of a key,
   delete all keys with a prefix, compact all data. Each asks for confirmation; deleting by prefix shows how many

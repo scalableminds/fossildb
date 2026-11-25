@@ -1,11 +1,12 @@
 """The first tab: information about the server and its collections."""
 
+import html
 import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Qt, Signal
-from PySide6.QtGui import QPalette
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, QRect, QSortFilterProxyModel, Qt, QTimer, Signal
+from PySide6.QtGui import QGuiApplication, QPainter, QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -14,40 +15,42 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMenu,
+    QProxyStyle,
     QPushButton,
     QSizePolicy,
     QStyle,
+    QApplication,
+    QStyledItemDelegate,
+    QStyleFactory,
+    QStyleOptionHeader,
+    QStyleOptionViewItem,
     QTableView,
     QVBoxLayout,
     QWidget,
 )
 
 from fossildb_gui import fmt, settings
+from fossildb_gui.settings import ConnectionSpec
 
 _SORT_ROLE = Qt.ItemDataRole.UserRole
+AUTO_REFRESH_SECONDS = 1
 
 
 def _raw_bytes(c) -> int:
     return c.rawKeyBytes + c.rawValueBytes
 
 
-def _compressions(c) -> list[str]:
-    return sorted({name for level in c.levels for name in level.compressions})
+def _compressions(c) -> str:
+    return ", ".join(sorted({name for level in c.levels for name in level.compressions}))
 
 
 def _ratio(c) -> float | None:
     return _raw_bytes(c) / c.liveSstFilesBytes if c.liveSstFilesBytes else None
 
 
-def _levels(c) -> str:
-    return " · ".join(f"L{level.level}: {level.fileCount}" for level in c.levels)
-
-
-def _levels_tooltip(c) -> str:
-    return "\n".join(
-        f"Level {level.level}: {level.fileCount} files, {fmt.size(level.sizeBytes)}, {', '.join(level.compressions)}"
-        for level in c.levels
-    )
+def _deletions(c) -> int:
+    return c.sstDeletions + c.memtableDeletions
 
 
 def _data_age(c) -> str:
@@ -57,6 +60,66 @@ def _data_age(c) -> str:
     return oldest if oldest == newest else f"{oldest} – {newest}"
 
 
+# Deletion markers are worth a warning from this share of all entries on, since they slow down reads until a
+# compaction removes them
+_DELETIONS_WARNING_SHARE = 0.1
+
+
+def _warnings(c) -> list[str]:
+    warnings = []
+    if c.estimatedPendingCompactionBytes:
+        warnings.append(f"⏳ {fmt.size(c.estimatedPendingCompactionBytes)} to compact")
+    elif c.compactionPending:
+        warnings.append("⏳ compaction pending")
+    entries = c.sstEntries + c.memtableEntries
+    if entries and _deletions(c) >= _DELETIONS_WARNING_SHARE * entries:
+        warnings.append(f"⚠ {fmt.compact_count(_deletions(c))} deletions")
+    return warnings
+
+
+def _detail_rows(c) -> list[tuple[str, str]]:
+    """All statistics of a collection, for the tooltip and "Copy info summary"."""
+    rows = [
+        ("Column family", c.columnFamily if c.columnFamily != c.name else ""),
+        ("Versions", f"{fmt.count(c.estimatedVersionCount)} (estimated)"),
+        ("On disk", fmt.size(c.liveSstFilesBytes)),
+        ("Uncompressed", fmt.size(_raw_bytes(c))),
+        ("Average value", fmt.size(c.rawValueBytes / c.sstEntries) if c.sstEntries else ""),
+        ("Data files", fmt.count(c.sstFileCount)),
+        *(
+            (f"Level {level.level}", f"{fmt.count(level.fileCount)} files, {fmt.size(level.sizeBytes)}, "
+             f"{', '.join(level.compressions)}")
+            for level in c.levels
+        ),
+        ("Unflushed", f"{fmt.count(c.memtableEntries)} entries in memory"),
+        ("Deletions", f"{fmt.count(_deletions(c))} not yet compacted away"),
+        ("Pending compaction", fmt.size(c.estimatedPendingCompactionBytes)),
+        ("Index memory", fmt.size(c.tableReadersMemoryBytes)),
+        ("Written", _data_age(c)),
+        ("First key", c.firstKey),
+        ("Last key", c.lastKey),
+        ("Status", "   ".join(_warnings(c))),
+    ]
+    return [(name, value) for name, value in rows if value]
+
+
+def _details(c) -> str:
+    """The statistics as HTML tooltip."""
+    cells = "".join(
+        f"<tr><td style='padding-right:12px'>{name}</td><td>{html.escape(value)}</td></tr>"
+        for name, value in _detail_rows(c)
+    )
+    return f"<b>{html.escape(c.name)}</b><table>{cells}</table>"
+
+
+def summary_text(c, server: str) -> str:
+    """The statistics as plain text, e.g. for pasting into a chat."""
+    rows = _detail_rows(c)
+    width = max(len(name) for name, _ in rows) + 2
+    lines = [f"{c.name} on {server}, {time.strftime('%Y-%m-%d %H:%M')}"]
+    return "\n".join(lines + [f"  {name + ':':<{width}}{value}" for name, value in rows])
+
+
 @dataclass
 class Column:
     title: str
@@ -64,11 +127,10 @@ class Column:
     text: Callable[[Any], str]
     tooltip: str
     numeric: bool = True
-    hidden: bool = False
 
 
 COLUMNS = [
-    Column("Collection", lambda c: c.name, lambda c: c.name, "", numeric=False),
+    Column("Collection", lambda c: c.name, lambda c: c.name, "Hover over a collection for all its statistics", False),
     Column(
         "Column family",
         lambda c: c.columnFamily,
@@ -77,93 +139,66 @@ COLUMNS = [
         numeric=False,
     ),
     Column(
+        "On disk",
+        lambda c: c.liveSstFilesBytes,
+        lambda c: fmt.size(c.liveSstFilesBytes),
+        "Size of the data files (compressed). The bar compares it to the largest collection.",
+    ),
+    Column(
         "Versions",
         lambda c: c.estimatedVersionCount,
-        lambda c: fmt.count(c.estimatedVersionCount),
+        lambda c: fmt.compact_count(c.estimatedVersionCount),
         "Estimated number of stored versions (of all keys). Deleted or overwritten entries count until a compaction "
         "removes them.",
     ),
     Column(
-        "On disk",
-        lambda c: c.liveSstFilesBytes,
-        lambda c: fmt.size(c.liveSstFilesBytes),
-        "Size of the data files (compressed)",
-    ),
-    Column(
-        "Uncompressed",
-        _raw_bytes,
-        lambda c: fmt.size(_raw_bytes(c)),
-        "Size of keys and values in the data files before compression",
-    ),
-    Column(
-        "Ratio",
-        lambda c: _ratio(c) or 0,
-        lambda c: f"{_ratio(c):.1f}×" if _ratio(c) else "",
-        "Compression ratio: uncompressed size / size on disk",
-    ),
-    Column(
-        "Avg. value",
-        lambda c: c.rawValueBytes / c.sstEntries if c.sstEntries else 0,
-        lambda c: fmt.size(c.rawValueBytes / c.sstEntries) if c.sstEntries else "",
-        "Average uncompressed value size in the data files",
-    ),
-    Column("Files", lambda c: c.sstFileCount, lambda c: fmt.count(c.sstFileCount), "Number of data (SST) files"),
-    Column("Levels", lambda c: len(c.levels), _levels, "Files per level of the LSM tree", numeric=False),
-    Column(
         "Compression",
-        lambda c: ", ".join(_compressions(c)),
-        lambda c: ", ".join(_compressions(c)),
-        "Compression types of the data files. CompactAllData converts old files to the current compression.",
+        lambda c: _ratio(c) or 0,
+        lambda c: " ".join(part for part in (f"{_ratio(c):.1f}×" if _ratio(c) else "", _compressions(c)) if part),
+        "Compression ratio (uncompressed size / size on disk) and compression types of the data files. "
+        "CompactAllData converts old files to the current compression.",
         numeric=False,
     ),
     Column(
-        "Unflushed",
-        lambda c: c.memtableEntries,
-        lambda c: fmt.count(c.memtableEntries),
-        "Recent writes held in memory (memtables), not yet written to data files",
-    ),
-    Column(
-        "Deletions",
-        lambda c: c.sstDeletions + c.memtableDeletions,
-        lambda c: fmt.count(c.sstDeletions + c.memtableDeletions),
-        "Deletion markers that a compaction has not yet removed",
-    ),
-    Column(
-        "Pending compaction",
-        lambda c: c.estimatedPendingCompactionBytes,
-        lambda c: fmt.size(c.estimatedPendingCompactionBytes),
-        "Estimated bytes that compactions still have to rewrite",
-    ),
-    Column(
-        "Index memory",
-        lambda c: c.tableReadersMemoryBytes,
-        lambda c: fmt.size(c.tableReadersMemoryBytes),
-        "Memory used for the index and filter blocks of the data files",
-    ),
-    Column(
-        "Written",
-        lambda c: c.oldestSstFileCreationTimeSeconds,
-        _data_age,
-        "When the oldest and newest data files were written",
+        "Status",
+        lambda c: " ".join(_warnings(c)),
+        lambda c: "   ".join(_warnings(c)),
+        "Pending compactions, and deletion markers that make up at least "
+        f"{_DELETIONS_WARNING_SHARE:.0%} of the entries",
         numeric=False,
     ),
-    Column("First key", lambda c: c.firstKey, lambda c: c.firstKey, "", numeric=False),
-    Column("Last key", lambda c: c.lastKey, lambda c: c.lastKey, "", numeric=False),
 ]
+_SIZE_COLUMN = 2
+_BAR_ROLE = Qt.ItemDataRole.UserRole + 1  # share of the largest collection, 0 to 1
 
 
 class CollectionsModel(QAbstractTableModel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._collections: list = []
+        self._largest = 0
 
-    def set_collections(self, collections) -> None:
-        self.beginResetModel()
-        self._collections = list(collections)
-        self.endResetModel()
+    def set_collections(self, collections) -> bool:
+        """Returns whether the rows changed. Otherwise only the values are updated, which keeps selection and scroll
+        position, e.g. when refreshing automatically."""
+        collections = list(collections)
+        same_rows = [c.name for c in collections] == [c.name for c in self._collections]
+        if not same_rows:
+            self.beginResetModel()
+        self._collections = collections
+        self._largest = max((c.liveSstFilesBytes for c in collections), default=0)
+        if same_rows:
+            if collections:
+                self.dataChanged.emit(self.index(0, 0), self.index(len(collections) - 1, len(COLUMNS) - 1))
+        else:
+            self.endResetModel()
+        return not same_rows
 
     def collection_name(self, row: int) -> str:
         return self._collections[row].name
+
+    def collection(self, row: int):
+        return self._collections[row]
 
     def rowCount(self, parent=QModelIndex()):
         return 0 if parent.isValid() else len(self._collections)
@@ -178,12 +213,12 @@ class CollectionsModel(QAbstractTableModel):
             return column.text(collection)
         if role == _SORT_ROLE:
             return column.value(collection)
+        if role == _BAR_ROLE:
+            return collection.liveSstFilesBytes / self._largest if self._largest else 0
         if role == Qt.ItemDataRole.TextAlignmentRole and column.numeric:
             return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        if role == Qt.ItemDataRole.ToolTipRole and column.title == "Levels":
-            return _levels_tooltip(collection)
-        if role == Qt.ItemDataRole.ToolTipRole and column.title in ("First key", "Last key"):
-            return column.text(collection)
+        if role == Qt.ItemDataRole.ToolTipRole:
+            return _details(collection)
         return None
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
@@ -193,7 +228,92 @@ class CollectionsModel(QAbstractTableModel):
             return COLUMNS[section].title
         if role == Qt.ItemDataRole.ToolTipRole:
             return COLUMNS[section].tooltip or None
+        if role == Qt.ItemDataRole.TextAlignmentRole:
+            horizontal = Qt.AlignmentFlag.AlignRight if COLUMNS[section].numeric else Qt.AlignmentFlag.AlignLeft
+            return horizontal | Qt.AlignmentFlag.AlignVCenter
         return None
+
+
+class _PaddedDelegate(QStyledItemDelegate):
+    """Keeps text away from the cell borders, so right- and left-aligned neighbors don't touch."""
+
+    PADDING = 8
+
+    def paint(self, painter, option, index) -> None:
+        # Background and selection across the whole cell, then the content within the padding
+        background = QStyleOptionViewItem(option)
+        self.initStyleOption(background, index)
+        background.text = ""
+        style = option.widget.style() if option.widget else QApplication.style()
+        style.drawPrimitive(QStyle.PrimitiveElement.PE_PanelItemViewItem, background, painter, option.widget)
+        content = QStyleOptionViewItem(option)
+        content.rect = option.rect.adjusted(self.PADDING, 0, -self.PADDING, 0)
+        super().paint(painter, content, index)
+
+    def sizeHint(self, option, index):
+        size = super().sizeHint(option, index)
+        size.setWidth(size.width() + 2 * self.PADDING)
+        return size
+
+
+class _PaddedHeaderStyle(QProxyStyle):
+    """Indents the header labels like the cells of _PaddedDelegate."""
+
+    def drawControl(self, element, option, painter, widget=None) -> None:
+        if element == QStyle.ControlElement.CE_HeaderLabel:
+            option = QStyleOptionHeader(option)
+            option.rect = option.rect.adjusted(_PaddedDelegate.PADDING, 0, -_PaddedDelegate.PADDING, 0)
+        super().drawControl(element, option, painter, widget)
+
+    def sizeFromContents(self, contents_type, option, size, widget=None):
+        size = super().sizeFromContents(contents_type, option, size, widget)
+        if contents_type == QStyle.ContentsType.CT_HeaderSection:
+            size.setWidth(size.width() + 2 * _PaddedDelegate.PADDING)
+        return size
+
+
+class _CollectionsView(QTableView):
+    """Only the left mouse button opens collections. In single-click mode, Qt activates items with any button."""
+
+    def __init__(self):
+        super().__init__()
+        self.other_button = False
+
+    def mouseReleaseEvent(self, event) -> None:
+        self._with_button(event, super().mouseReleaseEvent)
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        self._with_button(event, super().mouseDoubleClickEvent)
+
+    def _with_button(self, event, handler) -> None:
+        self.other_button = event.button() != Qt.MouseButton.LeftButton
+        try:
+            handler(event)
+        finally:
+            self.other_button = False
+
+
+class _SizeBarDelegate(_PaddedDelegate):
+    """Draws a bar for the size, left of the right-aligned number."""
+
+    _TEXT_SPACE = 70  # room for e.g. "1023.9 GiB"
+
+    def paint(self, painter, option, index) -> None:
+        super().paint(painter, option, index)
+        share = index.data(_BAR_ROLE) or 0
+        bar_space = option.rect.width() - self._TEXT_SPACE - 2 * self.PADDING
+        if bar_space <= 0 or share <= 0:
+            return
+        color = option.palette.color(QPalette.ColorRole.Highlight)
+        color.setAlphaF(0.55)
+        height = max(4, option.rect.height() // 3)
+        bar = QRect(option.rect.left() + self.PADDING, option.rect.center().y() - height // 2, max(2, round(bar_space * share)), height)
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(color)
+        painter.drawRoundedRect(bar, 2, 2)
+        painter.restore()
 
 
 class _Value(QLabel):
@@ -237,13 +357,21 @@ _LEGACY_FIELDS = {"Address", "Version", "Updated"}
 class OverviewWidget(QWidget):
     open_collection = Signal(str)
     refresh_requested = Signal()
+    auto_refresh_requested = Signal()  # only sent while the overview is visible
 
-    def __init__(self, connection_label: str, parent=None):
+    def __init__(self, spec: ConnectionSpec, parent=None):
         super().__init__(parent)
-        self._connection_label = connection_label
+        self._connection_label = spec.label
+        self._server_title = spec.title
 
         refresh = QPushButton("Refresh")
         refresh.clicked.connect(self.refresh_requested)
+        self._auto_refresh = QPushButton("Auto-refresh")
+        self._auto_refresh.setCheckable(True)
+        self._auto_refresh.setToolTip(f"Refresh every {AUTO_REFRESH_SECONDS} s while the overview is shown")
+        self._auto_refresh_timer = QTimer(self, interval=AUTO_REFRESH_SECONDS * 1000)
+        self._auto_refresh_timer.timeout.connect(self._auto_refresh_tick)
+        self._auto_refresh.toggled.connect(self._auto_refresh_toggled)
 
         # Server information, in a compact grid so that the collections table gets the space
         server = QGridLayout()
@@ -264,15 +392,17 @@ class OverviewWidget(QWidget):
                 if name == "Updated":
                     updated = QHBoxLayout()
                     updated.addWidget(self._labels[name])
+                    updated.addSpacing(12)
                     updated.addStretch()
                     updated.addWidget(refresh)
+                    updated.addWidget(self._auto_refresh)
                     server.addLayout(updated, row, 2 * group + 1)
                 else:
                     server.addWidget(self._labels[name], row, 2 * group + 1)
             server.setColumnStretch(2 * group + 1, 1)
         # The paths get most of the room
         server.setColumnStretch(3, 3)
-        self._labels["Address"].setText(connection_label)
+        self._labels["Address"].setText(spec.title)
         self._labels["Status"].setTextFormat(Qt.TextFormat.RichText)
 
         server.setContentsMargins(0, 0, 0, 0)
@@ -285,10 +415,19 @@ class OverviewWidget(QWidget):
         self._proxy = QSortFilterProxyModel(self)
         self._proxy.setSourceModel(self._model)
         self._proxy.setSortRole(_SORT_ROLE)
-        self._table = QTableView()
+        self._table = _CollectionsView()
+        # The style is not owned by the header, so it is kept here
+        self._header_style = _PaddedHeaderStyle(QStyleFactory.create(self._table.style().name()))
+        self._table.horizontalHeader().setStyle(self._header_style)
+        self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._table.customContextMenuRequested.connect(self._context_menu)
+        self._table.setWordWrap(False)  # otherwise long keys are cut at hyphens instead of at the end
         self._table.setModel(self._proxy)
         self._table.setSortingEnabled(True)
-        self._table.sortByColumn(0, Qt.SortOrder.AscendingOrder)
+        self._table.sortByColumn(_SIZE_COLUMN, Qt.SortOrder.DescendingOrder)
+        self._table.setShowGrid(False)
+        self._table.setAlternatingRowColors(True)
+        self._table.verticalHeader().setDefaultSectionSize(self._table.fontMetrics().height() + 10)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -297,6 +436,9 @@ class OverviewWidget(QWidget):
         self._table.setToolTip(f"{'Click' if single_click else 'Double-click'} a collection to open it")
         self._table.verticalHeader().hide()
         self._table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self._table.horizontalHeader().setStretchLastSection(True)
+        self._table.setItemDelegate(_PaddedDelegate(self._table))
+        self._table.setItemDelegateForColumn(_SIZE_COLUMN, _SizeBarDelegate(self._table))
         self._table.activated.connect(self._activated)
 
         # Manual entry for servers without GetDatabaseInfo
@@ -340,6 +482,9 @@ class OverviewWidget(QWidget):
         labels["Updated"].setText(time.strftime("%H:%M:%S"))
         legacy = info is None
         self._manual_box.setVisible(legacy)
+        self._auto_refresh.setEnabled(not legacy)  # nothing changes without GetDatabaseInfo
+        if legacy:
+            self._auto_refresh.setChecked(False)
         self._table.setVisible(not legacy)
         for name, label in labels.items():
             visible = not legacy or name in _LEGACY_FIELDS
@@ -363,18 +508,31 @@ class OverviewWidget(QWidget):
         labels["Write-ahead log"].setText(fmt.size(info.walSizeBytes))
         labels["Status"].setText(self._status_text(info))
 
-        self._model.set_collections(info.collections)
-        differing_families = any(c.columnFamily != c.name for c in info.collections)
-        self._table.setColumnHidden(1, not differing_families)
-        self._table.resizeColumnsToContents()
-        for column in range(len(COLUMNS)):
-            self._table.setColumnWidth(column, min(self._table.columnWidth(column), 320))
+        if self._model.set_collections(info.collections):
+            # Only for new rows, so that refreshing keeps the column widths the user chose
+            differing_families = any(c.columnFamily != c.name for c in info.collections)
+            self._table.setColumnHidden(1, not differing_families)
+            self._table.resizeColumnsToContents()
+            self._table.setColumnWidth(0, min(self._table.columnWidth(0), 320))
+            self._table.setColumnWidth(_SIZE_COLUMN, 240)
 
         total_disk = sum(c.liveSstFilesBytes for c in info.collections)
         total_versions = sum(c.estimatedVersionCount for c in info.collections)
         labels["Collections"].setText(
-            f"{len(info.collections)}, {fmt.size(total_disk)} on disk, ~{fmt.count(total_versions)} versions"
+            f"{len(info.collections)}, {fmt.size(total_disk)} on disk, ~{fmt.compact_count(total_versions)} versions"
         )
+
+    def _auto_refresh_toggled(self, on: bool) -> None:
+        if on:
+            self._auto_refresh_timer.start()
+            self._auto_refresh_tick()
+        else:
+            self._auto_refresh_timer.stop()
+
+    def _auto_refresh_tick(self) -> None:
+        # Hidden behind a collection tab or minimized, nobody looks at the numbers
+        if self.isVisible() and not self.window().isMinimized():
+            self.auto_refresh_requested.emit()
 
     @staticmethod
     def _status_text(info) -> str:
@@ -409,4 +567,25 @@ class OverviewWidget(QWidget):
             self.open_collection.emit(name)
 
     def _activated(self, index) -> None:
-        self.open_collection.emit(self._model.collection_name(self._proxy.mapToSource(index).row()))
+        if not self._table.other_button:
+            self.open_collection.emit(self._name_at(index))
+
+    def _name_at(self, index) -> str:
+        return self._model.collection_name(self._proxy.mapToSource(index).row())
+
+    def _context_menu(self, position) -> None:
+        index = self._table.indexAt(position)
+        if not index.isValid():
+            return
+        name = self._name_at(index)
+        collection = self._model.collection(self._proxy.mapToSource(index).row())
+        value = index.data() or ""
+        clipboard = QGuiApplication.clipboard()
+        menu = QMenu(self)
+        menu.addAction("Copy collection name", lambda: clipboard.setText(name))
+        if index.column() > 0 and value:
+            menu.addAction(f"Copy “{value}”", lambda: clipboard.setText(value))
+        menu.addAction("Copy info summary", lambda: clipboard.setText(summary_text(collection, self._server_title)))
+        menu.addSeparator()
+        menu.addAction("Open", lambda: self.open_collection.emit(name))
+        menu.exec(self._table.viewport().mapToGlobal(position))

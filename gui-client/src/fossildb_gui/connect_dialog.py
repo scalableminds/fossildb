@@ -1,10 +1,12 @@
 """The window for choosing a FossilDB server to connect to."""
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QInputDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -33,9 +35,20 @@ class ConnectDialog(QDialog):
 
         self._recent = QListWidget()
         for spec in settings.recent_connections():
-            item = QListWidgetItem(spec.label)
-            item.setData(Qt.ItemDataRole.UserRole, spec)
+            item = QListWidgetItem()
+            self._set_item_spec(item, spec)
             self._recent.addItem(item)
+        self._recent.setContextMenuPolicy(Qt.ContextMenuPolicy.ActionsContextMenu)
+        rename = QAction("Rename…", self._recent)
+        rename.setShortcut(QKeySequence(Qt.Key.Key_F2))
+        rename.setShortcutContext(Qt.ShortcutContext.WidgetShortcut)
+        rename.triggered.connect(self._rename_selected)
+        remove = QAction("Remove from list", self._recent)
+        remove.setShortcut(QKeySequence.StandardKey.Delete)
+        remove.setShortcutContext(Qt.ShortcutContext.WidgetShortcut)
+        remove.triggered.connect(self._remove_selected)
+        self._recent.addActions([rename, remove])
+        self._recent.setToolTip("Right-click to rename (F2) or remove (Del) a connection")
         self._recent.itemClicked.connect(lambda item: self._fill(item.data(Qt.ItemDataRole.UserRole)))
         self._recent.itemActivated.connect(lambda item: self._connect(item.data(Qt.ItemDataRole.UserRole)))
 
@@ -45,6 +58,12 @@ class ConnectDialog(QDialog):
         self._ssh_host = QLineEdit()
         self._ssh_host.setPlaceholderText("user@host or a host from ~/.ssh/config")
         self._address = QLineEdit("localhost:7155")
+        self._name = QLineEdit()
+        self._name.setPlaceholderText("optional, e.g. production")
+        # A name filled in from a recent connection doesn't belong to a different address
+        self._ssh_host.textEdited.connect(self._clear_filled_name)
+        self._address.textEdited.connect(self._clear_filled_name)
+        self._filled_name = ""
         self._address_label = QLabel()
 
         mode = QWidget()
@@ -58,6 +77,7 @@ class ConnectDialog(QDialog):
         form.addRow("Connection:", mode)
         form.addRow("SSH host:", self._ssh_host)
         form.addRow(self._address_label, self._address)
+        form.addRow("Name:", self._name)
 
         self._status = QLabel()
         self._status.setWordWrap(True)
@@ -101,6 +121,38 @@ class ConnectDialog(QDialog):
         self._direct.setChecked(not spec.ssh_host)
         self._ssh_host.setText(spec.ssh_host)
         self._address.setText(spec.address)
+        self._name.setText(spec.name)
+        self._filled_name = spec.name
+
+    def _clear_filled_name(self) -> None:
+        if self._filled_name and self._name.text() == self._filled_name:
+            self._name.clear()
+        self._filled_name = ""
+
+    @staticmethod
+    def _set_item_spec(item: QListWidgetItem, spec: ConnectionSpec) -> None:
+        item.setText(spec.title)
+        item.setData(Qt.ItemDataRole.UserRole, spec)
+
+    def _rename_selected(self) -> None:
+        item = self._recent.currentItem()
+        if item is None:
+            return
+        spec = item.data(Qt.ItemDataRole.UserRole)
+        name, ok = QInputDialog.getText(self, "Rename connection", f"Name for {spec.label}:", text=spec.name)
+        if not ok:
+            return
+        renamed = settings.rename_recent_connection(spec, name)
+        self._set_item_spec(item, renamed)
+        if self._spec() == renamed:
+            self._name.setText(renamed.name)
+            self._filled_name = renamed.name
+
+    def _remove_selected(self) -> None:
+        item = self._recent.currentItem()
+        if item is not None:
+            settings.remove_recent_connection(item.data(Qt.ItemDataRole.UserRole))
+            self._recent.takeItem(self._recent.row(item))
 
     def _update_mode(self) -> None:
         tunnel = self._tunnel.isChecked()
@@ -109,7 +161,7 @@ class ConnectDialog(QDialog):
 
     def _spec(self) -> ConnectionSpec:
         ssh_host = self._ssh_host.text().strip() if self._tunnel.isChecked() else ""
-        return ConnectionSpec(self._address.text().strip(), ssh_host)
+        return ConnectionSpec(self._address.text().strip(), ssh_host, self._name.text().strip())
 
     def connect_to(self, spec: ConnectionSpec) -> None:
         self._fill(spec)
@@ -121,7 +173,7 @@ class ConnectDialog(QDialog):
             return
         self._fill(spec)
         self._set_busy(True)
-        self._show_status(f"Connecting to {spec.label} …")
+        self._show_status(f"Connecting to {spec.title} …")
 
         def connect():
             # Imported here, so that the window shows before grpc is loaded
@@ -146,7 +198,7 @@ class ConnectDialog(QDialog):
             # Cancelled in the meantime
             self._runner.submit(connection.close)
             return
-        settings.add_recent_connection(spec)
+        spec = settings.add_recent_connection(spec)
         self._set_busy(False)
         self.connected.emit(spec, connection, info)
         self.accept()
@@ -161,7 +213,7 @@ class ConnectDialog(QDialog):
 
     def _set_busy(self, busy: bool) -> None:
         self._connect_button.setEnabled(not busy)
-        for widget in (self._recent, self._direct, self._tunnel, self._ssh_host, self._address):
+        for widget in (self._recent, self._direct, self._tunnel, self._ssh_host, self._address, self._name):
             widget.setEnabled(not busy)
         if not busy:
             self._update_mode()

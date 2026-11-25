@@ -17,6 +17,7 @@ message Skeleton {
   optional bytes payload = 5;
   optional google.protobuf.Timestamp created = 6;
   optional test.other.Other other = 7;
+  optional int64 modifiedTimestamp = 8;
   message Node { optional double x = 1; }
   enum Kind { SKELETON = 0; VOLUME = 1; }
 }
@@ -49,6 +50,7 @@ def test_typed_nodes(schema_folder):
     message.nodes.add(x=1.5)
     message.counts["a"] = 3
     message.other.name = "o"
+    message.modifiedTimestamp = 1732540000000
     nodes = decoding.message_nodes(cls.FromString(message.SerializeToString()))
     by_name = {node.columns[0]: node for node in nodes}
     assert by_name["id"].columns == ("id", "int64", "7")
@@ -58,6 +60,7 @@ def test_typed_nodes(schema_folder):
     assert by_name["nodes"].children[0].children[0].columns == ("x", "double", "1.5")
     assert by_name["counts"].children[0].columns == ("a", "int32", "3")
     assert by_name["other"].children[0].columns == ("name", "string", "o")
+    assert by_name["modifiedTimestamp"].columns[2] == "1732540000000 (2024-11-25T13:06:40.000Z)"
 
 
 def test_unknown_fields_are_shown(schema_folder):

@@ -3,7 +3,7 @@
 from collections import deque
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, QTimer, Signal
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QGuiApplication, QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -23,9 +23,12 @@ from fossildb_gui import fmt
 from fossildb_gui.record_view import RecordView
 from fossildb_gui.tasks import Latest, TaskRunner
 
-PAGE_SIZE = 500
+# Small pages show quickly even when the server reads from a slow disk; more are loaded while scrolling
+PAGE_SIZE = 100
 # Version counts need one ListVersions call per key. They are loaded for visible rows only, a few at a time.
 MAX_VERSION_COUNT_REQUESTS = 3
+# The next page is loaded once fewer rows than this are left below the visible ones
+PREFETCH_ROWS = 50
 # Counting the keys that a prefix delete affects stops here
 MAX_COUNTED_KEYS = 10_000
 
@@ -72,7 +75,13 @@ class KeyListModel(QAbstractTableModel):
     def fetchMore(self, parent=QModelIndex()):
         if not self.canFetchMore(parent):
             return
-        self.loading = True
+        if self.keys:
+            # A last row "Loading more…", for when the user reaches the end before the page arrives
+            self.beginInsertRows(QModelIndex(), len(self.keys), len(self.keys))
+            self.loading = True
+            self.endInsertRows()
+        else:
+            self.loading = True
         self.status_changed.emit()
         start_after = self.keys[-1] if self.keys else None
         prefix = self.prefix
@@ -85,8 +94,16 @@ class KeyListModel(QAbstractTableModel):
             context=self,
         )
 
+    def _stop_loading(self) -> None:
+        if self.loading and self.keys:
+            self.beginRemoveRows(QModelIndex(), len(self.keys), len(self.keys))
+            self.loading = False
+            self.endRemoveRows()
+        else:
+            self.loading = False
+
     def _page_loaded(self, keys: list[str]) -> None:
-        self.loading = False
+        self._stop_loading()
         self.has_more = len(keys) > PAGE_SIZE
         keys = keys[:PAGE_SIZE]
         if keys:
@@ -96,7 +113,7 @@ class KeyListModel(QAbstractTableModel):
         self.status_changed.emit()
 
     def _page_failed(self, error: Exception) -> None:
-        self.loading = False
+        self._stop_loading()
         self.error = str(error)
         self.status_changed.emit()
 
@@ -149,12 +166,24 @@ class KeyListModel(QAbstractTableModel):
     # Model
 
     def rowCount(self, parent=QModelIndex()):
-        return 0 if parent.isValid() else len(self.keys)
+        if parent.isValid():
+            return 0
+        return len(self.keys) + (1 if self.loading and self.keys else 0)
+
+    def is_key_row(self, row: int) -> bool:
+        return 0 <= row < len(self.keys)
+
+    def flags(self, index):
+        if not self.is_key_row(index.row()):
+            return Qt.ItemFlag.NoItemFlags
+        return super().flags(index)
 
     def columnCount(self, parent=QModelIndex()):
         return 2
 
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        if not self.is_key_row(index.row()):
+            return self._loading_row_data(index, role)
         key = self.keys[index.row()]
         if index.column() == 0:
             if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.ToolTipRole):
@@ -168,6 +197,20 @@ class KeyListModel(QAbstractTableModel):
             return fmt.count(count) if isinstance(count, int) else count
         if role == Qt.ItemDataRole.TextAlignmentRole:
             return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        return None
+
+    @staticmethod
+    def _loading_row_data(index, role):
+        if index.column() != 0:
+            return None
+        if role == Qt.ItemDataRole.DisplayRole:
+            return "Loading more…"
+        if role == Qt.ItemDataRole.ForegroundRole:
+            return QGuiApplication.palette().color(QPalette.ColorRole.PlaceholderText)
+        if role == Qt.ItemDataRole.FontRole:
+            font = QGuiApplication.font()
+            font.setItalic(True)
+            return font
         return None
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
@@ -202,6 +245,7 @@ class KeyBrowser(QWidget):
         self._model = KeyListModel(connection, collection, runner, self)
         self._model.status_changed.connect(self._update_status)
         self._table = QTableView()
+        self._table.setWordWrap(False)  # otherwise long keys are cut at hyphens instead of at the end
         self._table.setModel(self._model)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -213,6 +257,10 @@ class KeyBrowser(QWidget):
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
         self._table.setColumnWidth(1, 80)
         self._table.selectionModel().currentRowChanged.connect(self._row_changed)
+        # Qt only loads more when scrolled to the very end, so load the next page earlier
+        scroll_bar = self._table.verticalScrollBar()
+        scroll_bar.valueChanged.connect(self._prefetch)
+        scroll_bar.rangeChanged.connect(self._prefetch)
         self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._table.customContextMenuRequested.connect(self._context_menu)
 
@@ -281,7 +329,7 @@ class KeyBrowser(QWidget):
         self._status.setText(text)
 
     def _row_changed(self, current, _previous) -> None:
-        if current.isValid():
+        if current.isValid() and self._model.is_key_row(current.row()):
             self.record.show_key(self._model.keys[current.row()])
 
     def _open_exact_key(self) -> None:
@@ -290,9 +338,16 @@ class KeyBrowser(QWidget):
             self._table.clearSelection()
             self.record.show_key(key)
 
+    def _prefetch(self) -> None:
+        last_visible = self._table.rowAt(self._table.viewport().height() - 1)
+        if last_visible == -1:  # below the last row, which Qt handles itself
+            return
+        if self._model.rowCount() - 1 - last_visible < PREFETCH_ROWS and self._model.canFetchMore():
+            self._model.fetchMore()
+
     def _context_menu(self, position) -> None:
         index = self._table.indexAt(position)
-        if not index.isValid():
+        if not index.isValid() or not self._model.is_key_row(index.row()):
             return
         key = self._model.keys[index.row()]
         menu = QMenu(self)

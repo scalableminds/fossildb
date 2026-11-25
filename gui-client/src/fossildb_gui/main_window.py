@@ -26,19 +26,21 @@ class MainWindow(QMainWindow):
     def __init__(self, spec: ConnectionSpec, connection, info, runner: TaskRunner, schemas: SchemaManager):
         super().__init__()
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-        self.setWindowTitle(f"FossilDB – {connection.label}")
+        self.setWindowTitle(f"FossilDB – {spec.title}")
         self.resize(1400, 850)
         self._spec = spec
         self._connection = connection
         self._runner = runner
         self._schemas = schemas
         self._info_latest = Latest()
+        self._info_loading = False
         self.writes_enabled = False
         self._compacting = False
 
-        self._overview = OverviewWidget(spec.label)
+        self._overview = OverviewWidget(spec)
         self._overview.open_collection.connect(self.open_collection)
         self._overview.refresh_requested.connect(self.refresh_info)
+        self._overview.auto_refresh_requested.connect(self._auto_refresh_info)
         self._overview.set_info(info)
 
         self._tabs = QTabWidget()
@@ -129,17 +131,29 @@ class MainWindow(QMainWindow):
         else:
             self.refresh_info()
 
-    def refresh_info(self) -> None:
+    def refresh_info(self, quiet: bool = False) -> None:
         generation = self._info_latest.next()
-        self.statusBar().showMessage("Refreshing…")
+        self._info_loading = True
+        if not quiet:
+            self.statusBar().showMessage("Refreshing…")
         self._runner.submit(
             self._connection.database_info,
             self._info_latest.wrap(generation, self._info_loaded),
-            self._info_latest.wrap(generation, lambda e: self.statusBar().showMessage(f"Refresh failed: {e}")),
+            self._info_latest.wrap(generation, self._info_failed),
             context=self,
         )
 
+    def _auto_refresh_info(self) -> None:
+        # A slow server gets no new request before it answered the previous one
+        if not self._info_loading:
+            self.refresh_info(quiet=True)
+
+    def _info_failed(self, error: Exception) -> None:
+        self._info_loading = False
+        self.statusBar().showMessage(f"Refresh failed: {error}")
+
     def _info_loaded(self, info) -> None:
+        self._info_loading = False
         self.statusBar().clearMessage()
         self._overview.set_info(info)
 
@@ -166,7 +180,7 @@ class MainWindow(QMainWindow):
         """Asks before a destructive operation. With require_text, the user has to type it to confirm."""
         if not self.writes_enabled:
             return False
-        text = f"Server: {self._connection.label}\n\n{text}"
+        text = f"Server: {self._spec.title}\n\n{text}"
         if require_text is None:
             answer = QMessageBox.warning(
                 self,
@@ -233,7 +247,7 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self,
             "About FossilDB Client",
-            f"FossilDB Client {__version__}\n\nConnected to {self._connection.label}",
+            f"FossilDB Client {__version__}\n\nConnected to {self._spec.title}",
         )
 
     def _quit(self) -> None:

@@ -1,12 +1,15 @@
-"""Turning values into trees of Nodes: schema-less (wire format) and typed (with a message class)."""
+"""Turning values into trees of Nodes: schema-less (wire format), typed (with a message class), and JSON."""
+
+import json
 
 from google.protobuf.descriptor import FieldDescriptor
 
-from fossildb_gui import wire
+from fossildb_gui import fmt, wire
 from fossildb_gui.tree import MAX_CHILDREN, Node, limited
 
 WIRE_HEADERS = ["Field", "Type", "Value", "Other interpretations"]
 TYPED_HEADERS = ["Field", "Type", "Value"]
+JSON_HEADERS = ["Key", "Value"]
 
 _MAX_TEXT = 200
 _MAX_PACKED_LENGTH = 4096
@@ -113,7 +116,8 @@ def _value_node(name: str, field: FieldDescriptor, value) -> Node:
         return Node((name, type_name, _shorten(value)), tooltip=value[:10_000])
     if field.type == FieldDescriptor.TYPE_BOOL:
         return Node((name, type_name, "true" if value else "false"))
-    return Node((name, type_name, repr(value) if isinstance(value, float) else str(value)))
+    text = repr(value) if isinstance(value, float) else str(value)
+    return Node((name, type_name, fmt.with_timestamp(field.name, value, text)))
 
 
 def _repeated_node(field: FieldDescriptor, values) -> Node:
@@ -158,3 +162,43 @@ def _unknown_field_nodes(message) -> list[Node]:
             )
         )
     return nodes
+
+
+# JSON
+
+
+def json_nodes(value) -> list[Node]:
+    """Nodes for a parsed JSON document: the members of an object or the items of an array."""
+    if isinstance(value, (dict, list)):
+        return list(_json_children(value, ""))
+    return [_json_node("", value, "")]
+
+
+def _json_children(value: dict | list, key: str):
+    if isinstance(value, dict):
+        return limited((_json_node(str(k), item, str(k)) for k, item in value.items()), len(value))
+    # Array items take the array's key for recognizing timestamps, e.g. "timestamps": [...]
+    return limited((_json_node(str(i), item, key) for i, item in enumerate(value)), len(value))
+
+
+_INLINE_JSON_LENGTH = 60
+
+
+def _json_summary(value: dict | list) -> str:
+    """Short arrays and objects of plain values are shown inline, e.g. [1024, 2048, 512]."""
+    items = value.values() if isinstance(value, dict) else value
+    if len(value) <= 10 and not any(isinstance(item, (dict, list)) for item in items):
+        inline = json.dumps(value, ensure_ascii=False)
+        if len(inline) <= _INLINE_JSON_LENGTH:
+            return inline
+    if isinstance(value, dict):
+        return f"{{…}} {len(value):,} key{'s' if len(value) != 1 else ''}"
+    return f"[…] {len(value):,} item{'s' if len(value) != 1 else ''}"
+
+
+def _json_node(key: str, value, name: str) -> Node:
+    if isinstance(value, (dict, list)) and value:
+        return Node((key, _json_summary(value)), loader=lambda: _json_children(value, name))
+    text = json.dumps(value, ensure_ascii=False)
+    shortened = _shorten(text)
+    return Node((key, fmt.with_timestamp(name, value, shortened)), tooltip=text if shortened != text else None)

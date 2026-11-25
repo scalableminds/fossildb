@@ -113,10 +113,59 @@ def test_wire_nodes_rejects_non_protobuf():
 def test_values_as_text():
     from fossildb_gui import record_view
 
-    assert record_view._as_text(b'[{"a": 1}]') == '[\n  {\n    "a": 1\n  }\n]'
+    assert record_view._as_text(b'[{"a": 1}]') == '[{"a": 1}]'
     assert record_view._as_text(b"plain text") == "plain text"
     assert record_view._as_text(b"\xff\x00") is None
     assert record_view._as_text(b"") is None
     # A multi-byte character cut at the limit
     long_text = "ä" * record_view.TEXT_LIMIT
     assert record_view._as_text(long_text.encode()) == "ä" * (record_view.TEXT_LIMIT // 2)
+
+
+def test_values_as_json():
+    from fossildb_gui import record_view
+
+    text, nodes, note = record_view._as_json('[{"a": "ä"}]', b"")
+    assert text == '[\n  {\n    "a": "ä"\n  }\n]' and note is None
+    assert nodes[0].columns == ("0", '{"a": "ä"}') and nodes[0].children[0].columns == ("a", '"ä"')
+    text, nodes, note = record_view._as_json("plain text", b"plain text")
+    assert text is None and nodes is None and note.startswith("Not valid JSON")
+    text, _, note = record_view._as_json("[]", bytes(record_view.TEXT_LIMIT + 1))
+    assert text is None and "too large" in note
+
+
+def test_json_nodes():
+    nodes = decoding.json_nodes({"list": [1, None], "empty": {}, "long": "x" * 300, "flag": True})
+    assert [node.columns for node in nodes[1:]] == [("empty", "{}"), ("long", '"' + "x" * 199 + " …"), ("flag", "true")]
+    assert nodes[2].tooltip == '"' + "x" * 300 + '"'
+    assert [child.columns for child in nodes[0].children] == [("0", "1"), ("1", "null")]
+    assert decoding.json_nodes(5)[0].columns == ("", "5")
+    # Only short containers of plain values are shown inline
+    nested = decoding.json_nodes({"a": [[1]], "b": list(range(30)), "c": {"x": 1, "y": None}})
+    assert [node.columns[1] for node in nested] == ["[…] 1 item", "[…] 30 items", '{"x": 1, "y": null}']
+
+
+def test_timestamps():
+    from fossildb_gui import fmt
+
+    assert fmt.iso_timestamp(1732540000123) == "2024-11-25T13:06:40.123Z"  # milliseconds
+    assert fmt.iso_timestamp(1732540000) == "2024-11-25T13:06:40Z"  # seconds
+    assert fmt.iso_timestamp(0) is None and fmt.iso_timestamp(True) is None and fmt.iso_timestamp(10**20) is None
+    nodes = decoding.json_nodes(
+        {"actionTimestamp": 1732540000000, "timestamps": [1732540000], "count": 1732540000, "lastTimestamp": "x"}
+    )
+    assert nodes[0].columns[1] == "1732540000000 (2024-11-25T13:06:40.000Z)"
+    assert nodes[1].children[0].columns[1] == "1732540000 (2024-11-25T13:06:40Z)"
+    assert nodes[2].columns[1] == "1732540000"  # not named like a timestamp
+    assert nodes[3].columns[1] == '"x"'
+
+
+def test_object_id_date():
+    from fossildb_gui import fmt
+
+    assert fmt.object_id_date("5a0627196b0000221d37a590") == "2017-11-10T22:24:25Z"
+    assert fmt.object_id_date("5A0627196B0000221D37A590") == "2017-11-10T22:24:25Z"
+    assert fmt.object_id_date("5a0627196b0000221d37a59") is None  # too short
+    assert fmt.object_id_date("5a0627196b0000221d37a590-x") is None
+    assert fmt.object_id_date("00000000-587f-a699-2700-00bc111c538f") is None
+    assert fmt.object_id_date("000000000000000000000000") is None  # 1970

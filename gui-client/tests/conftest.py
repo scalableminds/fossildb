@@ -1,4 +1,5 @@
 import os
+import threading
 from concurrent import futures
 
 import grpc
@@ -16,6 +17,11 @@ class FakeFossilDB(pb_grpc.FossilDBServicer):
         self.legacy = legacy
         self.data: dict[str, dict[str, dict[int, bytes]]] = {"collectionA": {}, "collectionB": {}}
         self.compactions = 0
+        self.multiple_versions_requests = 0
+        self.info_requests = 0
+        # Cleared to hold back ListKeys replies
+        self.list_keys_gate = threading.Event()
+        self.list_keys_gate.set()
 
     def put(self, collection: str, key: str, version: int, value: bytes) -> None:
         self.data[collection].setdefault(key, {})[version] = value
@@ -29,6 +35,7 @@ class FakeFossilDB(pb_grpc.FossilDBServicer):
         return pb.HealthReply(success=True)
 
     def GetDatabaseInfo(self, request, context):
+        self.info_requests += 1
         if self.legacy:
             context.abort(grpc.StatusCode.UNIMPLEMENTED, "Method not found")
         collections = [
@@ -80,6 +87,7 @@ class FakeFossilDB(pb_grpc.FossilDBServicer):
         )
 
     def ListKeys(self, request, context):
+        self.list_keys_gate.wait(10)
         try:
             keys = sorted(self._store(request.collection, None))
         except KeyError as e:
@@ -101,6 +109,14 @@ class FakeFossilDB(pb_grpc.FossilDBServicer):
         if request.version not in versions:
             return pb.GetReply(success=False, errorMessage="No such element", value=b"", actualVersion=0)
         return pb.GetReply(success=True, value=versions[request.version], actualVersion=request.version)
+
+    def GetMultipleVersions(self, request, context):
+        self.multiple_versions_requests += 1
+        versions = self.data[request.collection].get(request.key, {})
+        newest = request.newestVersion if request.HasField("newestVersion") else max(versions, default=0)
+        oldest = request.oldestVersion if request.HasField("oldestVersion") else 0
+        chosen = sorted((v for v in versions if oldest <= v <= newest), reverse=True)
+        return pb.GetMultipleVersionsReply(success=True, versions=chosen, values=[versions[v] for v in chosen])
 
     def Delete(self, request, context):
         self.data[request.collection].get(request.key, {}).pop(request.version, None)

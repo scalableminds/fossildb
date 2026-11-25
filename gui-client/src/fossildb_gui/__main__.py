@@ -29,6 +29,7 @@ def _app_icon() -> QIcon:
 
 class Application:
     def __init__(self, qt_app: QApplication):
+        from fossildb_gui import settings
         from fossildb_gui.schema_manager import SchemaManager
         from fossildb_gui.tasks import TaskRunner
 
@@ -37,6 +38,7 @@ class Application:
         self.schemas = SchemaManager(self.runner, parent=qt_app)
         self._open: set = set()  # windows and dialogs, kept referenced while open
         qt_app.aboutToQuit.connect(self.runner.shutdown)
+        qt_app.aboutToQuit.connect(settings.flush)
 
     def show_connect_dialog(self, spec=None, connect_now: bool = False) -> None:
         from fossildb_gui.connect_dialog import ConnectDialog
