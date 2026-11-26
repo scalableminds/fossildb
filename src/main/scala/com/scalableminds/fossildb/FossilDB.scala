@@ -66,7 +66,7 @@ object FossilDB extends LazyLogging {
 
       opt[Int]("compactionThreads").valueName("<num>").validate(x => if (x > 0) success else failure("compactionThreads must be positive")).action( (x, c) =>
         c.copy(compactionThreads = x) ).text("number of files CompactAllData rewrites in parallel. " +
-          "At least one compaction slot is left to automatic compactions. Default: " + ConfigDefaults.compactionThreads)
+          "Limited so that automatic compactions keep at least one compaction slot once they fall behind. Default: " + ConfigDefaults.compactionThreads)
     }
 
     parser.parse(args, Config())

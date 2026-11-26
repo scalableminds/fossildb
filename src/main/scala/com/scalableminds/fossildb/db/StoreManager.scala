@@ -69,12 +69,12 @@ class StoreManager(dataDir: Path, backupDir: Path, columnFamilies: List[String],
     }
   }
 
-  def compactAllData(): Unit = {
+  def compactAllData(full: Boolean = false): Unit = {
     failDuringBackup()
     failDuringRestore()
     if (compactionInProgress.compareAndSet(false, true)) {
       try {
-        rocksDBManager.get.compactAllData()
+        rocksDBManager.get.compactAllData(full)
       } finally {
         compactionInProgress.set(false)
       }

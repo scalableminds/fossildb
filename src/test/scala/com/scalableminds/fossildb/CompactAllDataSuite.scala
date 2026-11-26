@@ -161,14 +161,17 @@ class CompactAllDataSuite extends AnyFlatSpec with BeforeAndAfterEach with TestH
       handles.foreach(handle => (0 until fileCount).foreach(i => writeFile(db, handle, i * 100 until (i + 1) * 100, Some(6), valueSize)))
     }
     val storeManager = new StoreManager(dataDir, backupDir, collections, None, ConfigDefaults.blockCacheSizeMB)
+    val failure = new java.util.concurrent.atomic.AtomicReference[Throwable]()
     val compaction = new Thread(() => try storeManager.compactAllData() catch {
-      case _: Exception => () // Expected if closed in time
+      case e: Throwable => failure.set(e) // Expected if closed in time
     })
     compaction.start()
     Thread.sleep(50)
     storeManager.close
     compaction.join(60000)
     assert(!compaction.isAlive)
+    // If closing interrupted the compaction, it must be reported as an abort, not as a failure
+    Option(failure.get()).foreach(e => assert(e.getMessage.contains("aborted because the database is closing"), e))
 
     val files = sstFiles()
     assert(files.forall(f => f.level == 6 && Set("Snappy", "ZSTD").contains(f.compression)))
@@ -178,6 +181,25 @@ class CompactAllDataSuite extends AnyFlatSpec with BeforeAndAfterEach with TestH
       assertAllKeysReadable(storeManager, 0 until fileCount * 100, valueSize)
     }
     assert(sstFiles().forall(_.compression == "ZSTD"))
+  }
+
+  it should "compact all data at once and drop deleted entries with full" in {
+    withStoreManager { storeManager =>
+      collections.foreach { collection =>
+        val store = storeManager.getStore(collection)
+        (0 until 100).foreach(i => store.put(key(i), 0, value(i, 100)))
+        store.withRawRocksIterator(it => (0 until 50).foreach(i => store.deleteMultipleVersions(it, key(i))))
+      }
+      storeManager.compactAllData(full = true)
+      assertAllKeysReadable(storeManager, 50 until 100, 100)
+    }
+    withRawDB(currentOptions) { (db, handles) =>
+      val properties = handles.flatMap(db.getPropertiesOfAllTables(_).asScala.values)
+      // All data is flushed and compacted into the bottommost level, without the deleted entries
+      assert(properties.map(_.getNumEntries).sum == 2 * 50)
+      assert(properties.map(_.getNumDeletions).sum == 0)
+      assert(sstFiles(db, handles).forall(f => f.level == 6 && f.compression == "ZSTD"))
+    }
   }
 
   "needsRewrite" should "accept the bottommost compression only in the bottommost level, and configured ones elsewhere" in {

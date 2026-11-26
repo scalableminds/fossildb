@@ -67,10 +67,12 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
       }
     }
     options.setCreateIfMissing(true).setCreateMissingColumnFamilies(true)
-    // RocksDB's default of 2 background jobs leaves a single compaction slot for the whole database (the other one is
-    // for flushes). Then a long compaction, e.g. of the bottommost level, blocks all others, level 0 piles up and
-    // RocksDB stalls writes. RocksDB only runs compactions in parallel when they fall behind, so more slots
-    // don't cost anything otherwise.
+    // RocksDB runs one compaction at a time while compactions keep up. Once they fall behind (level 0 reaches
+    // its speed-up threshold, 8 files with the default options, or too many bytes are pending), it runs up to
+    // max_background_jobs - max_background_jobs / 4 compactions in parallel. RocksDB's default of 2 jobs leaves
+    // only one compaction slot even then, so a long compaction (e.g. of the bottommost level, or one file of
+    // CompactAllData) blocks all others, level 0 piles up and RocksDB stalls writes. More slots don't cost anything
+    // while compactions keep up.
     maxBackgroundJobs.orElse(if (optionsFilePathOpt.isEmpty) Some(RocksDBManager.defaultMaxBackgroundJobs) else None)
       .foreach(options.setMaxBackgroundJobs)
     logger.info(s"Using max_background_jobs=${options.maxBackgroundJobs()}")
@@ -98,6 +100,17 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
       closeOptions()
       throw e
   }
+
+  // Read once here, as close() frees the native options, and compactAllData may still be called concurrently
+  private val maxBackgroundJobsInUse: Int = options.maxBackgroundJobs()
+
+  // Number of compactions RocksDB runs at most at the same time once compactions fall behind (GetBGJobLimits in
+  // RocksDB). While they keep up, it schedules only one at a time.
+  @nowarn("cat=deprecation")
+  private val compactionSlots: Int =
+    if (options.maxBackgroundCompactions() == -1 && options.maxBackgroundFlushes() == -1)
+      math.max(1, maxBackgroundJobsInUse - math.max(1, maxBackgroundJobsInUse / 4))
+    else math.max(1, options.maxBackgroundCompactions())
 
   def getStoreForColumnFamily(columnFamily: String): Option[RocksDBStore] = {
     columnFamilyHandles.get(columnFamily).map(new RocksDBStore(db, _))
@@ -130,32 +143,46 @@ class RocksDBManager(dataDir: Path, columnFamilies: List[String], optionsFilePat
       Using.resource(BackupEngine.open(Env.getDefault, backupEngineOptions))(block)
     }
 
-  // Number of compactions RocksDB runs at most at the same time (GetBGJobLimits in RocksDB)
-  @nowarn("cat=deprecation")
-  private def compactionSlots: Int =
-    if (options.maxBackgroundCompactions() == -1 && options.maxBackgroundFlushes() == -1)
-      math.max(1, options.maxBackgroundJobs() - math.max(1, options.maxBackgroundJobs() / 4))
-    else math.max(1, options.maxBackgroundCompactions())
+  /**
+   * Without full, rewrites all files in level 1 and below that don't have the current compression, one by one
+   * (see FileByFileCompaction). This does not drop deleted entries that are in other files than the data they delete.
+   *
+   * With full, compacts all data into the bottommost level at once, which rewrites all files with the current options
+   * and drops all deleted and overwritten entries. This takes compaction slots for a long time, so automatic
+   * compactions fall behind and writes may stall meanwhile.
+   */
+  def compactAllData(full: Boolean = false): Unit =
+    if (full) {
+      logger.info("Compacting all data fully, into the bottommost level")
+      closeLock.readLock().lock()
+      try {
+        if (closing.get()) throw new Exception("Compaction aborted because the database is closing")
+        // close() cancels the running compaction and waits for this to return
+        compactRangeAllColumnFamilies()
+      } finally {
+        closeLock.readLock().unlock()
+      }
+      logger.info("Compacting all data fully done")
+    } else {
+      // Each file rewrite counts as a running compaction. While compactions keep up, RocksDB runs only one at a time,
+      // so automatic compactions wait meanwhile and level 0 grows. Once it reaches the speed-up threshold, RocksDB runs
+      // up to compactionSlots compactions. Leave at least one of them to automatic compactions, otherwise level 0
+      // keeps piling up and RocksDB stalls writes.
+      val threads = math.max(1, math.min(compactionThreads, compactionSlots - 1))
+      if (compactionSlots - threads < 1)
+        logger.warn(s"There is only $compactionSlots compaction slot (max_background_jobs=$maxBackgroundJobsInUse). " +
+          "Automatic compactions can't run while CompactAllData rewrites a file, which may stall writes. Increase --maxBackgroundJobs.")
+      else if (threads < compactionThreads)
+        logger.warn(s"Using $threads instead of $compactionThreads compaction threads, to leave a compaction slot to " +
+          s"automatic compactions ($compactionSlots slots with max_background_jobs=$maxBackgroundJobsInUse)")
+      logger.info("Compacting all data, rewriting files with outdated compression one by one")
+      new FileByFileCompaction(db, columnFamilyByCollection.values.toSeq.sortBy(cf => columnFamilies.indexOf(cf.collection)),
+        threads, closing, closeLock).run()
+      logger.info("Compacting all data done")
+    }
 
-  // Rewrites all files in level 1 and below that don't have the current compression, see FileByFileCompaction
-  def compactAllData(): Unit = {
-    // Each file rewrite takes a compaction slot. Leave at least one to automatic compactions, otherwise level 0
-    // piles up and RocksDB stalls writes.
-    val threads = math.max(1, math.min(compactionThreads, compactionSlots - 1))
-    if (compactionSlots - threads < 1)
-      logger.warn(s"There is only $compactionSlots compaction slot (max_background_jobs=${options.maxBackgroundJobs()}). " +
-        "Automatic compactions can't run while CompactAllData rewrites a file, which may stall writes. Increase --maxBackgroundJobs.")
-    else if (threads < compactionThreads)
-      logger.warn(s"Using $threads instead of $compactionThreads compaction threads, to leave a compaction slot to " +
-        s"automatic compactions ($compactionSlots slots with max_background_jobs=${options.maxBackgroundJobs()})")
-    logger.info("Compacting all data, rewriting files with outdated compression one by one")
-    new FileByFileCompaction(db, columnFamilyByCollection.values.toSeq.sortBy(cf => columnFamilies.indexOf(cf.collection)),
-      threads, closing, closeLock).run()
-    logger.info("Compacting all data done")
-  }
-
-  // Compacts everything into the bottommost level in one go. Only for databases without other users, as it
-  // takes compaction slots for a long time.
+  // Compacts everything into the bottommost level in one go. It takes compaction slots for a long time, so
+  // automatic compactions fall behind and writes may stall meanwhile.
   private def compactRangeAllColumnFamilies(): Unit =
     // A manual compaction skips the bottommost level by default. Forcing it rewrites all files with the
     // current options (e.g. compression), and drops deleted and overwritten entries there.

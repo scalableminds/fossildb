@@ -209,7 +209,12 @@ message RestoreFromBackupReply {
     optional string errorMessage = 2;
 }
 
-message CompactAllDataRequest {}
+message CompactAllDataRequest {
+    // If true, compacts all data into the bottommost level at once, like CompactAllData did before: this rewrites all
+    // files and drops deleted and overwritten entries, freeing their space. It takes compaction slots for a long time,
+    // so writes may stall meanwhile. Default: false
+    optional bool full = 1;
+}
 
 message CompactAllDataReply {
     required bool success = 1;
@@ -245,7 +250,8 @@ service FossilDB {
     rpc Backup (BackupRequest) returns (BackupReply) {}
     rpc RestoreFromBackup (RestoreFromBackupRequest) returns (RestoreFromBackupReply) {}
     // Rewrites all data files whose compression differs from the current options (e.g. snappy from older versions),
-    // one file at a time, without blocking writes. Level-0 files are left to normal compaction. See README.md#compression.
+    // one file at a time, without blocking writes. Level-0 files are left to normal compaction. This does not free
+    // the space of deleted entries, set full for that. See README.md#compression.
     rpc CompactAllData (CompactAllDataRequest) returns (CompactAllDataReply) {}
     rpc ExportDB (ExportDBRequest) returns (ExportDBReply) {}
 }

@@ -27,7 +27,7 @@ For further options, see `help`:
   --maxBackgroundJobs <num>
                            maximum number of concurrent background compactions and flushes (rocksdb max_background_jobs). Overrides the value from --rocksOptionsFile. Default: the value from --rocksOptionsFile if set, else 8
   --compactionThreads <num>
-                           number of files CompactAllData rewrites in parallel. At least one compaction slot is left to automatic compactions. Default: 2
+                           number of files CompactAllData rewrites in parallel. Limited so that automatic compactions keep at least one compaction slot once they fall behind. Default: 2
 ```
 
 ## RocksDB Options File
@@ -55,14 +55,22 @@ To convert all files at once, call `CompactAllData`. The call returns once all f
 
 `CompactAllData` rewrites each SST file in level 1 and below whose compression differs from the current options,
 one file at a time (`--compactionThreads` files in parallel). Each rewrite is a short compaction of a single file
-(about 15 s for 1 GB), so the database stays available and writes continue at full speed meanwhile, as long as
-RocksDB has compaction slots left for its automatic compactions (`--maxBackgroundJobs`; with the default of 8 there are
-6, and 2 of them are used by `CompactAllData`). On large databases it still runs for hours with heavy disk I/O, and it
-needs free disk space for the rewritten files. The progress is logged after each file.
+(about 15 s for 1 GB), so the database stays available and writes continue meanwhile.
+
+RocksDB counts each rewrite as a running compaction. While compactions keep up, RocksDB runs only one at a time, so
+automatic compactions wait while `CompactAllData` runs, and level 0 grows by a few files. Once level 0 reaches the
+speed-up threshold (8 files with the default options), RocksDB runs more compactions in parallel
+(`--maxBackgroundJobs`; with the default of 8, up to 6, 2 of them used by `CompactAllData`), and automatic
+compactions catch up, well before RocksDB would slow down writes (20 files). Reads may be somewhat slower meanwhile.
+On large databases it still runs for hours with heavy disk I/O, and it needs free disk space for the rewritten files.
+The progress is logged after each file.
 
 Files that are already converted are skipped, so if the call is interrupted (e.g. by a restart), calling it again
 continues where it stopped. It does not merge files or move data to other levels, so it doesn't drop deleted entries
-that are in other files than the data they delete. Level-0 files (at most a few per collection) are left as they are,
+that are in other files than the data they delete, and doesn't free their space. To do that, call `CompactAllData`
+with `full = true`. This compacts all data into the bottommost level at once, as `CompactAllData` did before. It
+takes compaction slots for hours on large databases, so automatic compactions fall behind and writes may stall
+meanwhile. Level-0 files (at most a few per collection) are left as they are,
 as they can only be compacted together with most of the level below. Normal compaction rewrites them once more data is
 written.
 

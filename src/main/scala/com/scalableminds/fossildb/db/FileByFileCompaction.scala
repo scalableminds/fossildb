@@ -17,8 +17,11 @@ case class ColumnFamily(collection: String, handle: ColumnFamilyHandle, options:
  *
  * A full manual compaction (CompactRange) of a large column family runs in a single thread for hours and holds
  * compaction slots that automatic compactions need, so level-0 files pile up and RocksDB stalls writes.
- * Rewriting single files keeps each compaction short (about 15 s per 1 GB file) and leaves the remaining
- * compaction slots to automatic compactions, so writes continue at full speed meanwhile.
+ * Rewriting single files keeps each compaction short (about 15 s per 1 GB file). Each rewrite counts as a running
+ * compaction, and while compactions keep up, RocksDB schedules only one at a time, so automatic compactions wait
+ * meanwhile and level 0 grows by a few files. Once it reaches the speed-up threshold (8 files with the default
+ * options), RocksDB runs more compactions in parallel, and automatic compactions use the slots this leaves free,
+ * well before RocksDB would slow down writes (20 files).
  *
  * Only files in level 1 and below are rewritten, each into its own level. A level-0 file spans almost the whole key
  * range, so it can only be compacted together with most of the level below. Normal compaction moves them down
@@ -39,6 +42,10 @@ class FileByFileCompaction(db: RocksDB, columnFamilies: Seq[ColumnFamily], threa
   // forever, so stop after a few passes. Calling CompactAllData again rewrites the rest.
   private val maxPasses = 3
   private val busyRetryDelayMillis = 2000L
+  // A file that another compaction holds this long (10 minutes) is left for the next pass, so a stuck file can't
+  // keep CompactAllData running forever. Warn every minute while retrying.
+  private val maxBusyRetries = 300
+  private val busyWarnEveryRetries = 30
 
   private case class FileToRewrite(columnFamily: ColumnFamily, fileName: String, level: Int, size: Long,
                                    compression: String, order: Int) {
@@ -56,8 +63,9 @@ class FileByFileCompaction(db: RocksDB, columnFamilies: Seq[ColumnFamily], threa
       filesToRewrite = whileOpen(listFilesToRewrite())
     }
     if (filesToRewrite.nonEmpty)
-      logger.warn(s"${filesToRewrite.size} files (${formatBytes(filesToRewrite.map(_.size).sum)}) were added with an " +
-        s"outdated compression during compaction, they are left as they are. Run CompactAllData again to rewrite them.")
+      logger.warn(s"${filesToRewrite.size} files (${formatBytes(filesToRewrite.map(_.size).sum)}) still have an outdated " +
+        s"compression after $maxPasses passes (they were added during compaction, or other compactions held them), they " +
+        s"are left as they are. Run CompactAllData again to rewrite them.")
     logger.info(s"Rewrote $rewrittenCount files in ${formatDuration(System.nanoTime() - start)}")
   }
 
@@ -91,22 +99,34 @@ class FileByFileCompaction(db: RocksDB, columnFamilies: Seq[ColumnFamily], threa
 
     val start = System.nanoTime()
     val queue = new DelayQueue[Scheduled]()
-    files.foreach(file => queue.add(new Scheduled(file, 0)))
+    // Not 0, System.nanoTime() may be negative
+    files.foreach(file => queue.add(new Scheduled(file, start)))
     val remainingFiles = new AtomicInteger(files.size)
     val processedFiles = new AtomicInteger(0)
     val rewrittenFiles = new AtomicInteger(0)
+    val gaveUpFiles = new AtomicInteger(0)
     val processedBytes = new AtomicLong(0)
     val failure = new AtomicReference[Throwable]()
+    // Set when this returns, e.g. if the calling thread is interrupted
+    val stopped = new AtomicBoolean(false)
 
     def worker(): Unit =
-      while (remainingFiles.get() > 0 && failure.get() == null && !closing.get()) {
+      while (remainingFiles.get() > 0 && failure.get() == null && !closing.get() && !stopped.get()) {
         Option(queue.poll(100, TimeUnit.MILLISECONDS)).foreach { scheduled =>
           val file = scheduled.file
           val fileStart = System.nanoTime()
-          whileOpen(rewriteFile(file)) match {
+          val busyFor = s"${formatDuration(TimeUnit.MILLISECONDS.toNanos(busyRetryDelayMillis * (scheduled.retries + 1)))}"
+          (whileOpen(rewriteFile(file)) match {
+            case Busy if scheduled.retries >= maxBusyRetries => GaveUp
+            case result => result
+          }) match {
             case Busy =>
-              logger.debug(s"$file is being compacted, retrying later")
-              queue.add(new Scheduled(file, System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(busyRetryDelayMillis)))
+              val retries = scheduled.retries + 1
+              if (retries % busyWarnEveryRetries == 0)
+                logger.warn(s"Other compactions have held $file for about $busyFor, still retrying")
+              else
+                logger.debug(s"$file is being compacted, retrying later")
+              queue.add(new Scheduled(file, System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(busyRetryDelayMillis), retries))
             case result =>
               val processed = processedFiles.incrementAndGet()
               val bytes = processedBytes.addAndGet(file.size)
@@ -116,6 +136,9 @@ class FileByFileCompaction(db: RocksDB, columnFamilies: Seq[ColumnFamily], threa
                 case Rewritten(outputFiles) =>
                   rewrittenFiles.incrementAndGet()
                   s"Rewrote $file in ${formatDuration(System.nanoTime() - fileStart)} to ${outputFiles.map(baseName).mkString(", ")}"
+                case GaveUp =>
+                  gaveUpFiles.incrementAndGet()
+                  s"Gave up on $file, other compactions held it for about $busyFor. The next pass or call retries it"
                 case _ => s"Skipped $file, a compaction rewrote it meanwhile"
               }
               logger.info(s"$action. Progress: $processed/${files.size} files, ${formatBytes(bytes)}/${formatBytes(totalBytes)} " +
@@ -142,13 +165,23 @@ class FileByFileCompaction(db: RocksDB, columnFamilies: Seq[ColumnFamily], threa
       }))
       workers.foreach(_.get())
     } finally {
+      // Don't return while workers still use the database, e.g. if this thread is interrupted. A worker in CompactFiles
+      // (a native call, which ignores interrupts) finishes its file, then stops.
+      stopped.set(true)
       executor.shutdownNow()
+      var interrupted = false
+      while (!executor.isTerminated)
+        try executor.awaitTermination(1, TimeUnit.SECONDS) catch {
+          case _: InterruptedException => interrupted = true
+        }
+      if (interrupted) Thread.currentThread().interrupt()
     }
 
     Option(failure.get()).foreach(e => throw new Exception(s"Compaction failed: ${e.getMessage}", e))
     if (remainingFiles.get() > 0) throw new Exception("Compaction aborted because the database is closing")
-    logger.info(s"Pass $pass done: rewrote ${rewrittenFiles.get()} files, skipped ${processedFiles.get() - rewrittenFiles.get()} " +
-      s"in ${formatDuration(System.nanoTime() - start)}")
+    logger.info(s"Pass $pass done: rewrote ${rewrittenFiles.get()} files, skipped " +
+      s"${processedFiles.get() - rewrittenFiles.get() - gaveUpFiles.get()}, gave up on ${gaveUpFiles.get()} that other " +
+      s"compactions held, in ${formatDuration(System.nanoTime() - start)}")
     rewrittenFiles.get()
   }
 
@@ -156,6 +189,7 @@ class FileByFileCompaction(db: RocksDB, columnFamilies: Seq[ColumnFamily], threa
   private case class Rewritten(outputFiles: Seq[String]) extends RewriteResult
   private case object Gone extends RewriteResult
   private case object Busy extends RewriteResult
+  private case object GaveUp extends RewriteResult
 
   private def rewriteFile(file: FileToRewrite): RewriteResult =
     currentLevel(file) match {
@@ -171,10 +205,18 @@ class FileByFileCompaction(db: RocksDB, columnFamilies: Seq[ColumnFamily], threa
           }
         } catch {
           case e: RocksDBException =>
-            if (currentLevel(file).isEmpty) Gone
-            // An automatic compaction holds the file (or writes to its key range), it is probably gone afterwards
-            else if (Option(e.getStatus).exists(status => Set(Status.Code.Aborted, Status.Code.Busy, Status.Code.TryAgain).contains(status.getCode))) Busy
-            else throw e
+            val code = Option(e.getStatus).map(_.getCode)
+            if (closing.get() || code.contains(Status.Code.ShutdownInProgress))
+              throw new Exception("Compaction aborted because the database is closing", e)
+            currentLevel(file) match {
+              case None => Gone
+              // A trivial move put the file into another level between the check above and CompactFiles (which then
+              // fails with InvalidArgument, as it can't compact to a higher level). Check the file again later.
+              case Some(newLevel) if newLevel != level => Busy
+              // An automatic compaction holds the file (or writes to its key range), it is probably gone afterwards
+              case _ if code.exists(Set(Status.Code.Aborted, Status.Code.Busy, Status.Code.TryAgain).contains) => Busy
+              case _ => throw e
+            }
         }
     }
 
@@ -211,7 +253,8 @@ class FileByFileCompaction(db: RocksDB, columnFamilies: Seq[ColumnFamily], threa
     else f"${nanos / 1e9}%.1fs"
   }
 
-  private class Scheduled(val file: FileToRewrite, val notBeforeNanos: Long) extends Delayed {
+  // retries: how often the file was retried because another compaction held it
+  private class Scheduled(val file: FileToRewrite, val notBeforeNanos: Long, val retries: Int = 0) extends Delayed {
     override def getDelay(unit: TimeUnit): Long = unit.convert(notBeforeNanos - System.nanoTime(), TimeUnit.NANOSECONDS)
 
     override def compareTo(other: Delayed): Int = other match {
