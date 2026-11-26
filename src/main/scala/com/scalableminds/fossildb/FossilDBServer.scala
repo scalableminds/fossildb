@@ -12,8 +12,8 @@ import scala.concurrent.ExecutionContext
 
 class FossilDBServer(storeManager: StoreManager, port: Int, executionContext: ExecutionContext) extends LazyLogging
 { self =>
-  private[this] var server: Server = null
-  private[this] var healthStatusManager: HealthStatusManager = null
+  private var server: Server = null
+  private var healthStatusManager: HealthStatusManager = null
 
   def start(): Unit = {
     healthStatusManager = new HealthStatusManager()
