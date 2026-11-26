@@ -8,8 +8,8 @@ from PySide6.QtWidgets import (
     QApplication,
     QDialog,
     QDialogButtonBox,
-    QFormLayout,
     QFileDialog,
+    QFormLayout,
     QInputDialog,
     QLabel,
     QLineEdit,
@@ -65,6 +65,8 @@ class _ExportDialog(QDialog):
 
 
 class MainWindow(QMainWindow):
+    """Implements Host for the panels in its tabs."""
+
     new_connection_requested = Signal()
 
     def __init__(self, spec: ConnectionSpec, connection, info, runner: TaskRunner, schemas: SchemaManager):
@@ -214,7 +216,7 @@ class MainWindow(QMainWindow):
         generation = self._info_latest.next()
         self._info_loading = True
         if not quiet:
-            self.statusBar().showMessage(self._REFRESHING)
+            self.show_status(self._REFRESHING)
         self._runner.submit(
             self._connection.database_info,
             self._info_latest.wrap(generation, self._info_loaded),
@@ -229,7 +231,7 @@ class MainWindow(QMainWindow):
 
     def _info_failed(self, error: Exception) -> None:
         self._info_loading = False
-        self.statusBar().showMessage(f"Refresh failed: {error}")
+        self.show_status(f"Refresh failed: {error}")
 
     _REFRESHING = "Refreshing…"
 
@@ -237,14 +239,10 @@ class MainWindow(QMainWindow):
         self._info_loading = False
         # Only its own message, e.g. not that a backup finished
         if self.statusBar().currentMessage() == self._REFRESHING:
-            self.statusBar().clearMessage()
+            self.show_status("")
         self._overview.set_info(info)
 
     # Writes
-
-    @property
-    def connection_label(self) -> str:
-        return self._connection.label
 
     def _set_writes_enabled(self, enabled: bool) -> None:
         self.writes_enabled = enabled
@@ -261,6 +259,12 @@ class MainWindow(QMainWindow):
             action.setEnabled(self.writes_enabled and idle)
         for index in range(1, self._tabs.count()):
             self._tabs.widget(index).update_write_actions()
+
+    def show_status(self, message: str, timeout_ms: int = 0) -> None:
+        if message:
+            self.statusBar().showMessage(message, timeout_ms)
+        else:
+            self.statusBar().clearMessage()
 
     def confirm_write(self, title: str, text: str, require_text: str | None = None) -> bool:
         """Asks before a destructive operation. With require_text, the user has to type it to confirm."""
@@ -325,16 +329,16 @@ class MainWindow(QMainWindow):
         """Runs a long server operation in the background, with its progress in the status bar."""
         self._running.add(name)
         self._update_write_state()
-        self.statusBar().showMessage(f"{name} running on the server… (this can take long)")
+        self.show_status(f"{name} running on the server… (this can take long)")
         self.refresh_info(quiet=True)  # the overview shows what runs
 
         def finished(result, error: Exception | None) -> None:
             self._running.discard(name)
             self._update_write_state()
             if error is None:
-                self.statusBar().showMessage(done_message(result), 15000)
+                self.show_status(done_message(result), 15000)
             else:
-                self.statusBar().clearMessage()
+                self.show_status("")
                 QMessageBox.critical(self, f"{name} failed", str(error))
             self.refresh_info(quiet=True)
 
@@ -346,7 +350,7 @@ class MainWindow(QMainWindow):
         folder = QFileDialog.getExistingDirectory(self, "Folder with .proto files", self._schemas.folder)
         if folder:
             self._schemas.load(folder)
-            self.statusBar().showMessage(f"Loading schemas from {folder}…", 5000)
+            self.show_status(f"Loading schemas from {folder}…", 5000)
 
     # Misc
 
@@ -355,7 +359,7 @@ class MainWindow(QMainWindow):
         if not tunnel.is_alive():
             self._tunnel_timer.stop()
             message = tunnel.exit_message()
-            self.statusBar().showMessage(f"The SSH tunnel was closed: {message}")
+            self.show_status(f"The SSH tunnel was closed: {message}")
             QMessageBox.warning(
                 self,
                 "SSH tunnel closed",
@@ -376,10 +380,9 @@ class MainWindow(QMainWindow):
     _LIST_KEYS = {Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_PageUp, Qt.Key.Key_PageDown}
 
     def keyPressEvent(self, event) -> None:
-        if event.key() in self._LIST_KEYS and not event.modifiers():
-            if self._tabs.currentWidget().take_list_key(event):
-                return
-        super().keyPressEvent(event)
+        list_key = event.key() in self._LIST_KEYS and not event.modifiers()
+        if not (list_key and self._tabs.currentWidget().take_list_key(event)):
+            super().keyPressEvent(event)
 
     def closeEvent(self, event) -> None:
         if self._running:
@@ -409,6 +412,8 @@ class MainWindow(QMainWindow):
             self.resize(size)
             self.move(available.center() - QPoint(size.width() // 2, size.height() // 2))
         # A second window would otherwise cover the first one exactly. (On Wayland, the compositor places windows.)
-        others = [w for w in QApplication.topLevelWidgets() if isinstance(w, MainWindow) and w is not self and w.isVisible()]
+        others = [
+            w for w in QApplication.topLevelWidgets() if isinstance(w, MainWindow) and w is not self and w.isVisible()
+        ]
         if any(other.pos() == self.pos() for other in others):
             self.move(self.pos() + QPoint(self.CASCADE_OFFSET, self.CASCADE_OFFSET))

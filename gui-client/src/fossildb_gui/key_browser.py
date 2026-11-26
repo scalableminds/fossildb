@@ -2,8 +2,8 @@
 
 from collections import deque
 
-from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, Qt, QTimer, Signal
-from PySide6.QtGui import QGuiApplication, QPalette
+from PySide6.QtCore import QEvent, QModelIndex, Qt, QTimer
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -13,17 +13,18 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
-    QSplitter,
     QStyle,
     QTableView,
     QVBoxLayout,
     QWidget,
 )
 
-from fossildb_gui import fmt, settings
-from fossildb_gui.record_view import SPLITTER_HANDLE_WIDTH, RecordView
-from fossildb_gui.tasks import Latest, TaskRunner
-from fossildb_gui.tree import take_list_key
+from fossildb_gui import fmt, versions_panel
+from fossildb_gui.host import Host
+from fossildb_gui.paged_model import PagedModel
+from fossildb_gui.record_view import RecordView
+from fossildb_gui.tasks import TaskRunner
+from fossildb_gui.widgets import fetch_early, splitter, take_list_key
 
 # Small pages show quickly even when the server reads from a slow disk; more are loaded while scrolling
 PAGE_SIZE = 100
@@ -31,113 +32,48 @@ PAGE_SIZE = 100
 MAX_VERSION_COUNT_REQUESTS = 3
 # The next page is loaded once fewer rows than this are left below the visible ones
 PREFETCH_ROWS = 50
-# Counting versions stops here, since it means listing them; more are shown as "10 000+"
-MAX_VERSION_COUNT = 10_000
 # Counting the keys that a prefix delete affects stops here
 MAX_COUNTED_KEYS = 10_000
 
 
-class KeyListModel(QAbstractTableModel):
-    status_changed = Signal()
+class KeyListModel(PagedModel):
+    """The keys of a collection with a prefix, and their number of versions (loaded for visible rows only)."""
 
     def __init__(self, connection, collection: str, runner: TaskRunner, parent=None):
-        super().__init__(parent)
+        super().__init__(runner, PAGE_SIZE, parent)
         self._connection = connection
         self._collection = collection
-        self._runner = runner
-        self._latest = Latest()
         self.prefix = ""
-        self.keys: list[str] = []
-        self.has_more = False
-        self.loading = False
-        self.error: str | None = None
         self._version_counts: dict[str, int | str] = {}
         self._count_queue: deque[str] = deque()
         self._counts_requested: set[str] = set()
         self._counts_in_flight = 0
 
-    def reset(self, prefix: str | None = None) -> None:
+    @property
+    def keys(self) -> list[str]:
+        return self.items
+
+    def reset(self, prefix: str | None = None, load: bool = True) -> None:
         if prefix is not None:
             self.prefix = prefix
-        self.beginResetModel()
-        self.keys = []
-        self.has_more = True
-        self.error = None
-        self.loading = False
         self._version_counts.clear()
         self._count_queue.clear()
         self._counts_requested.clear()
-        self._latest.invalidate()
-        self.endResetModel()
-        self.fetchMore(QModelIndex())
+        super().reset(load)
 
-    # Paging
-
-    def canFetchMore(self, parent=QModelIndex()):
-        return not parent.isValid() and self.has_more and not self.loading and self.error is None
-
-    def fetchMore(self, parent=QModelIndex()):
-        if not self.canFetchMore(parent):
-            return
-        if self.keys:
-            # A last row "Loading more…", for when the user reaches the end before the page arrives
-            self.beginInsertRows(QModelIndex(), len(self.keys), len(self.keys))
-            self.loading = True
-            self.endInsertRows()
-        else:
-            self.loading = True
-        self.status_changed.emit()
+    def page_loader(self, limit: int):
         start_after = self.keys[-1] if self.keys else None
-        prefix = self.prefix
-        generation = self._latest.next()
-        self._runner.submit(
-            # One more than a page, to know whether there are more
-            lambda: self._connection.list_keys(self._collection, PAGE_SIZE + 1, start_after, prefix),
-            self._latest.wrap(generation, self._page_loaded),
-            self._latest.wrap(generation, self._page_failed),
-            context=self,
-        )
+        collection, prefix = self._collection, self.prefix
+        return lambda: self._connection.list_keys(collection, limit, start_after, prefix)
 
-    def _stop_loading(self) -> None:
-        if self.loading and self.keys:
-            self.beginRemoveRows(QModelIndex(), len(self.keys), len(self.keys))
-            self.loading = False
-            self.endRemoveRows()
-        else:
-            self.loading = False
+    def version_count(self, key: str) -> int | None:
+        """The number of versions, if counted already; more than versions_panel.MAX_VERSION_COUNT means more."""
+        count = self._version_counts.get(key)
+        return count if isinstance(count, int) else None
 
-    def _page_loaded(self, keys: list[str]) -> None:
-        self._stop_loading()
-        self.has_more = len(keys) > PAGE_SIZE
-        keys = keys[:PAGE_SIZE]
-        if keys:
-            self.beginInsertRows(QModelIndex(), len(self.keys), len(self.keys) + len(keys) - 1)
-            self.keys.extend(keys)
-            self.endInsertRows()
-        self.status_changed.emit()
-
-    def _page_failed(self, error: Exception) -> None:
-        self._stop_loading()
-        self.error = str(error)
-        self.status_changed.emit()
-
-    def remove_key(self, key: str) -> None:
-        try:
-            row = self.keys.index(key)
-        except ValueError:
-            return
-        self.beginRemoveRows(QModelIndex(), row, row)
-        del self.keys[row]
-        self.endRemoveRows()
+    def remove(self, key: str) -> None:
         self._version_counts.pop(key, None)
-        self.status_changed.emit()
-
-    def forget_version_count(self, key: str) -> None:
-        self._version_counts.pop(key, None)
-        self._counts_requested.discard(key)
-        if key in self.keys:
-            row = self.keys.index(key)
-            self.dataChanged.emit(self.index(row, 1), self.index(row, 1))
+        super().remove(key)
 
     # Version counts, loaded when rows become visible
 
@@ -153,7 +89,7 @@ class KeyListModel(QAbstractTableModel):
             key = self._count_queue.popleft()
             self._counts_in_flight += 1
             self._runner.submit(
-                lambda key=key: len(self._connection.list_versions(self._collection, key, MAX_VERSION_COUNT + 1)),
+                lambda key=key: versions_panel.count_versions(self._connection, self._collection, key),
                 lambda n, key=key: self._version_count_loaded(key, n),
                 lambda e, key=key: self._version_count_loaded(key, "?"),
                 context=self,
@@ -169,54 +105,23 @@ class KeyListModel(QAbstractTableModel):
 
     # Model
 
-    def rowCount(self, parent=QModelIndex()):
-        if parent.isValid():
-            return 0
-        return len(self.keys) + (1 if self.loading and self.keys else 0)
-
-    def is_key_row(self, row: int) -> bool:
-        return 0 <= row < len(self.keys)
-
-    def flags(self, index):
-        if not self.is_key_row(index.row()):
-            return Qt.ItemFlag.NoItemFlags
-        return super().flags(index)
-
     def columnCount(self, parent=QModelIndex()):
         return 2
 
-    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
-        if not self.is_key_row(index.row()):
-            return self._loading_row_data(index, role)
-        key = self.keys[index.row()]
-        if index.column() == 0:
-            if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.ToolTipRole):
-                return key
-            return None
+    def item_data(self, key: str, column: int, role):
+        if column == 0:
+            return key if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.ToolTipRole) else None
         if role == Qt.ItemDataRole.DisplayRole:
             count = self._version_counts.get(key)
             if count is None:
                 self._request_version_count(key)
                 return ""
             if isinstance(count, int):
-                return f"{fmt.count(MAX_VERSION_COUNT)}+" if count > MAX_VERSION_COUNT else fmt.count(count)
+                limit = versions_panel.MAX_VERSION_COUNT
+                return f"{fmt.count(limit)}+" if count > limit else fmt.count(count)
             return count
         if role == Qt.ItemDataRole.TextAlignmentRole:
             return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        return None
-
-    @staticmethod
-    def _loading_row_data(index, role):
-        if index.column() != 0:
-            return None
-        if role == Qt.ItemDataRole.DisplayRole:
-            return "Loading more…"
-        if role == Qt.ItemDataRole.ForegroundRole:
-            return QGuiApplication.palette().color(QPalette.ColorRole.PlaceholderText)
-        if role == Qt.ItemDataRole.FontRole:
-            font = QGuiApplication.font()
-            font.setItalic(True)
-            return font
         return None
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
@@ -226,12 +131,12 @@ class KeyListModel(QAbstractTableModel):
 
 
 class KeyBrowser(QWidget):
-    def __init__(self, connection, collection: str, runner: TaskRunner, schemas, window, parent=None):
+    def __init__(self, connection, collection: str, runner: TaskRunner, schemas, host: Host, parent=None):
         super().__init__(parent)
         self.collection = collection
         self._connection = connection
         self._runner = runner
-        self._window = window
+        self._host = host
 
         self._prefix = QLineEdit()
         self._prefix.setPlaceholderText("Filter by key prefix")
@@ -265,9 +170,7 @@ class KeyBrowser(QWidget):
         self._table.setColumnWidth(1, 80)
         self._table.selectionModel().currentRowChanged.connect(self._row_changed)
         # Qt only loads more when scrolled to the very end, so load the next page earlier
-        scroll_bar = self._table.verticalScrollBar()
-        scroll_bar.valueChanged.connect(self._prefetch)
-        scroll_bar.rangeChanged.connect(self._prefetch)
+        fetch_early(self._table, PREFETCH_ROWS)
         self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._table.customContextMenuRequested.connect(self._context_menu)
 
@@ -285,22 +188,16 @@ class KeyBrowser(QWidget):
         bottom.addWidget(self._delete_prefix_button)
         left_layout.addLayout(bottom)
 
-        self.record = RecordView(connection, collection, runner, schemas, window)
+        self.record = RecordView(connection, collection, runner, schemas, host)
         self.record.key_deleted.connect(self._key_deleted)
 
-        splitter = QSplitter()
-        splitter.addWidget(left)
-        splitter.addWidget(self.record)
-        splitter.setStretchFactor(1, 1)
-        splitter.setSizes([self._key_list_width(), 900])
-        splitter.setHandleWidth(SPLITTER_HANDLE_WIDTH)
-        settings.remember_splitter(splitter, "keys")
+        panels = splitter(left, self.record, self._key_list_width(), "keys")
         # Arrow keys move between the key list and the version list
         self._table.installEventFilter(self)
-        self.record.versions_view.installEventFilter(self)
+        self.record.versions.view.installEventFilter(self)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(splitter)
+        layout.addWidget(panels)
 
         self.update_write_actions()
         self._model.reset()
@@ -314,7 +211,7 @@ class KeyBrowser(QWidget):
         self.record.reload()
 
     def update_write_actions(self) -> None:
-        writable = self._window.writes_enabled
+        writable = self._host.writes_enabled
         self._delete_prefix_button.setEnabled(writable)
         self._delete_prefix_button.setToolTip(
             "Delete all versions of all keys starting with the prefix in the filter"
@@ -341,8 +238,9 @@ class KeyBrowser(QWidget):
         self._status.setText(text)
 
     def _row_changed(self, current, _previous) -> None:
-        if current.isValid() and self._model.is_key_row(current.row()):
-            self.record.show_key(self._model.keys[current.row()])
+        if current.isValid() and self._model.is_item_row(current.row()):
+            key = self._model.keys[current.row()]
+            self.record.show_key(key, version_count=self._model.version_count(key))
 
     def _open_exact_key(self) -> None:
         key = self._open_key.text().strip()
@@ -361,9 +259,9 @@ class KeyBrowser(QWidget):
 
     def eventFilter(self, watched, event) -> bool:
         if event.type() == QEvent.Type.KeyPress and not event.modifiers():
-            if watched is self._table and event.key() == Qt.Key.Key_Right and self.record.focus_versions():
+            if watched is self._table and event.key() == Qt.Key.Key_Right and self.record.versions.focus():
                 return True
-            if watched is self.record.versions_view and event.key() == Qt.Key.Key_Left:
+            if watched is self.record.versions.view and event.key() == Qt.Key.Key_Left:
                 self._table.setFocus()
                 return True
         return super().eventFilter(watched, event)
@@ -375,16 +273,9 @@ class KeyBrowser(QWidget):
             return False
         return take_list_key(self._table, event)
 
-    def _prefetch(self) -> None:
-        last_visible = self._table.rowAt(self._table.viewport().height() - 1)
-        if last_visible == -1:  # below the last row, which Qt handles itself
-            return
-        if self._model.rowCount() - 1 - last_visible < PREFETCH_ROWS and self._model.canFetchMore():
-            self._model.fetchMore()
-
     def _context_menu(self, position) -> None:
         index = self._table.indexAt(position)
-        if not index.isValid() or not self._model.is_key_row(index.row()):
+        if not index.isValid() or not self._model.is_item_row(index.row()):
             return
         key = self._model.keys[index.row()]
         menu = QMenu(self)
@@ -392,7 +283,7 @@ class KeyBrowser(QWidget):
         menu.exec(self._table.viewport().mapToGlobal(position))
 
     def _key_deleted(self, key: str) -> None:
-        self._model.remove_key(key)
+        self._model.remove(key)
         self.record.show_key(None)
 
     # Deleting by prefix
@@ -404,7 +295,7 @@ class KeyBrowser(QWidget):
                 self, "Delete keys with prefix", "Enter the prefix of the keys to delete in the filter field first."
             )
             return
-        self._window.statusBar().showMessage(f"Counting keys starting with “{prefix}”…")
+        self._host.show_status(f"Counting keys starting with “{prefix}”…")
 
         def count_keys():
             total, start_after = 0, None
@@ -424,22 +315,22 @@ class KeyBrowser(QWidget):
         )
 
     def _confirm_delete_prefix(self, prefix: str, total: int, more: bool) -> None:
-        self._window.statusBar().clearMessage()
+        self._host.show_status("")
         if total == 0:
             QMessageBox.information(self, "Delete keys with prefix", f"No keys start with “{prefix}”.")
             return
         amount = f"at least {fmt.count(total)}" if more else fmt.count(total)
-        if not self._window.confirm_write(
+        if not self._host.confirm_write(
             "Delete keys with prefix",
             f"Delete all versions of {amount} keys starting with\n\n{prefix}\n\nin {self.collection}? "
             "This cannot be undone.",
             require_text=prefix,
         ):
             return
-        self._window.statusBar().showMessage(f"Deleting keys starting with “{prefix}”…")
+        self._host.show_status(f"Deleting keys starting with “{prefix}”…")
 
         def deleted(_):
-            self._window.statusBar().showMessage(f"Deleted {amount} keys starting with “{prefix}”", 8000)
+            self._host.show_status(f"Deleted {amount} keys starting with “{prefix}”", 8000)
             self.record.show_key(None)
             self._model.reset()
 

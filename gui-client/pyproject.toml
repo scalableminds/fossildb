@@ -25,7 +25,23 @@ packages = ["src/fossildb_gui"]
 artifacts = ["src/fossildb_gui/api/fossildbapi_pb2*.py"]
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "ruff>=0.14"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+extend-exclude = ["src/fossildb_gui/api/fossildbapi_pb2*.py"]
+
+[tool.ruff.lint]
+select = ["F", "E", "W", "B", "UP", "SIM", "I"]
+ignore = [
+    "B008",  # Qt's QModelIndex() as default argument is the convention for models
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/test_discovery.py" = ["E501"]  # sample data from /proc/net/tcp
+
+[tool.ruff.lint.isort]
+known-first-party = ["fossildb_gui"]

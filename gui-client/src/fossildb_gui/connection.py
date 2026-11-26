@@ -41,7 +41,9 @@ class Connection:
             if self.tunnel is not None:
                 reason = self.tunnel.last_error() or "the connection failed"
                 raise FossilDBError(f"{self.label}: not reachable from {self.tunnel.ssh_host} ({reason})")
-            raise FossilDBError(f"{self.label} accepted the connection, but did not answer like FossilDB. Is the port right?")
+            raise FossilDBError(
+                f"{self.label} accepted the connection, but did not answer like FossilDB. Is the port right?"
+            )
         if state != grpc.ChannelConnectivity.READY:
             raise FossilDBError(f"No answer from FossilDB at {self.label} within {timeout:g} seconds")
         self._call("Health", pb.HealthRequest(), timeout)
@@ -115,9 +117,11 @@ class Connection:
     def version_sizes(self, collection: str, key: str, newest: int, oldest: int) -> list[tuple[int, int]]:
         """(version, value size) for the versions from newest to oldest. FossilDB can't report sizes, so this
         downloads the values."""
-        request = pb.GetMultipleVersionsRequest(collection=collection, key=key, newestVersion=newest, oldestVersion=oldest)
+        request = pb.GetMultipleVersionsRequest(
+            collection=collection, key=key, newestVersion=newest, oldestVersion=oldest
+        )
         reply = self._call("GetMultipleVersions", request)
-        return [(version, len(value)) for version, value in zip(reply.versions, reply.values)]
+        return [(version, len(value)) for version, value in zip(reply.versions, reply.values, strict=True)]
 
     def delete_version(self, collection: str, key: str, version: int) -> None:
         self._call("Delete", pb.DeleteRequest(collection=collection, key=key, version=version))
@@ -180,7 +184,9 @@ def _check_reachable(address: str, timeout: float = CONNECT_TIMEOUT_SECONDS) -> 
     except socket.gaierror:
         raise FossilDBError(f"Unknown host {host}") from None
     except ConnectionRefusedError:
-        raise FossilDBError(f"Nothing is listening at {address} (connection refused). Is FossilDB running there?") from None
+        raise FossilDBError(
+            f"Nothing is listening at {address} (connection refused). Is FossilDB running there?"
+        ) from None
     except TimeoutError:
         raise FossilDBError(f"No answer from {address} within {timeout:g} seconds") from None
     except OSError as e:

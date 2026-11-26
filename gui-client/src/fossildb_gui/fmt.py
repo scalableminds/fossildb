@@ -3,7 +3,6 @@
 import datetime as dt
 import re
 
-
 # Decimal units (kB, MB, GB: powers of 1000) or binary ones (KiB, MiB, GiB: powers of 1024), for all sizes in the UI
 _decimal = True
 _DECIMAL_UNITS = ("B", "kB", "MB", "GB", "TB", "PB")
@@ -37,6 +36,17 @@ def count(n: int) -> str:
     return f"{n:,}".replace(",", THOUSANDS_SEPARATOR)
 
 
+def plural(n: int, word: str, plural_word: str | None = None) -> str:
+    """E.g. "1 byte", "1 500 bytes"."""
+    return f"{count(n)} {word if n == 1 else plural_word or word + 's'}"
+
+
+def one_line(text: str, limit: int = 200) -> str:
+    """The text in one line (line breaks shown as ⏎), shortened to the limit."""
+    text = text.replace("\n", "⏎")
+    return text if len(text) <= limit else text[:limit] + " …"
+
+
 def compact_count(n: int) -> str:
     """Short counts like 870, 3.4 k, 41.3 M."""
     for limit, unit in ((10**12, "T"), (10**9, "G"), (10**6, "M"), (10**3, "k")):
@@ -66,7 +76,10 @@ def duration(seconds: float) -> str:
 
 
 # Timestamps are shown as dates when they fall into this range, as milliseconds or seconds since 1970
-_PLAUSIBLE_SECONDS = (dt.datetime(1990, 1, 1, tzinfo=dt.UTC).timestamp(), dt.datetime(2100, 1, 1, tzinfo=dt.UTC).timestamp())
+_PLAUSIBLE_SECONDS = (
+    dt.datetime(1990, 1, 1, tzinfo=dt.UTC).timestamp(),
+    dt.datetime(2100, 1, 1, tzinfo=dt.UTC).timestamp(),
+)
 
 
 def iso_timestamp(value) -> str | None:

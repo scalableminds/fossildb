@@ -64,7 +64,11 @@ def _ports_from_lsof() -> set[int]:
         ).stdout
     except (OSError, subprocess.TimeoutExpired):
         return set()
-    return {int(port) for host, port in re.findall(r"\s(\S+):(\d+) \(LISTEN\)", output) if host in ("*", "127.0.0.1", "[::1]", "localhost")}
+    return {
+        int(port)
+        for host, port in re.findall(r"\s(\S+):(\d+) \(LISTEN\)", output)
+        if host in ("*", "127.0.0.1", "[::1]", "localhost")
+    }
 
 
 def find_local(exclude: set[int]) -> list[int]:
@@ -74,4 +78,4 @@ def find_local(exclude: set[int]) -> list[int]:
         return []
     with ThreadPoolExecutor(min(16, len(ports)), thread_name_prefix="fossildb-scan") as pool:
         answers = pool.map(lambda port: check(f"localhost:{port}", LOCAL_PROBE_TIMEOUT_SECONDS), ports)
-        return [port for port, error in zip(ports, answers) if error is None]
+        return [port for port, error in zip(ports, answers, strict=True) if error is None]

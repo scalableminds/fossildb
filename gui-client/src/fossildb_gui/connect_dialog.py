@@ -7,8 +7,8 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
-    QInputDialog,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -19,10 +19,9 @@ from PySide6.QtWidgets import (
 )
 
 from fossildb_gui import settings
-from fossildb_gui import tunnel as tunnel_module
 from fossildb_gui.settings import ConnectionSpec
 from fossildb_gui.tasks import Latest, TaskRunner
-
+from fossildb_gui.tunnel import local_ports_in_use
 
 _GREEN = QColor(46, 160, 67)
 _GRAY = QColor(150, 150, 150)
@@ -87,7 +86,9 @@ class ConnectDialog(QDialog):
         self._recent.addActions([rename, remove])
         self._recent.setToolTip("Right-click to rename (F2) or remove (Del) a connection")
         # Choosing a connection (by click or arrow keys) fills in the fields; double-click or Enter connects
-        self._recent.currentItemChanged.connect(lambda item, _: item and self._fill(item.data(Qt.ItemDataRole.UserRole)))
+        self._recent.currentItemChanged.connect(
+            lambda item, _: item and self._fill(item.data(Qt.ItemDataRole.UserRole))
+        )
         self._recent.itemClicked.connect(lambda item: self._fill(item.data(Qt.ItemDataRole.UserRole)))
         self._recent.itemDoubleClicked.connect(self._double_clicked)
         self._recent.installEventFilter(self)
@@ -308,10 +309,9 @@ class ConnectDialog(QDialog):
                     lambda error, spec=spec: self._checked(spec, error),
                     context=self,
                 )
-        known = {_local_port(spec) for spec in settings.recent_connections()} | {
-            tunnel.local_port for tunnel in list(tunnel_module._running)
-        }
-        self._checks.submit(lambda: _discovery().find_local(known - {None}), self._found_local, context=self)
+        # Servers in the recent connections are listed already, and the app's own tunnels lead to remote ones
+        known = {_local_port(spec) for spec in settings.recent_connections()} - {None} | local_ports_in_use()
+        self._checks.submit(lambda: _discovery().find_local(known), self._found_local, context=self)
 
     def _checked(self, spec: ConnectionSpec, error: str | None) -> None:
         for row in range(self._recent.count()):

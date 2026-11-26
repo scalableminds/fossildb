@@ -1,10 +1,9 @@
-"""A tree model whose children are created only when a node is expanded, so large values stay fast."""
+"""A tree model whose children are created only when a node is expanded, so large values stay fast, and a proxy
+that filters it."""
 
-from typing import Callable, Iterable
+from collections.abc import Callable, Iterable
 
 from PySide6.QtCore import QAbstractItemModel, QModelIndex, QPersistentModelIndex, QSortFilterProxyModel, Qt
-from PySide6.QtGui import QKeyEvent
-from PySide6.QtWidgets import QApplication, QStyle, QStyledItemDelegate, QStyleOptionViewItem
 
 from fossildb_gui import fmt
 
@@ -122,44 +121,6 @@ class TreeModel(QAbstractItemModel):
         if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.DisplayRole:
             return self._headers[section]
         return None
-
-
-class PaddedDelegate(QStyledItemDelegate):
-    """Keeps text away from the cell borders, so right- and left-aligned neighbors don't touch."""
-
-    PADDING = 8
-
-    def paint(self, painter, option, index) -> None:
-        # Background and selection across the whole cell, then the content within the padding
-        background = QStyleOptionViewItem(option)
-        self.initStyleOption(background, index)
-        background.text = ""
-        style = option.widget.style() if option.widget else QApplication.style()
-        style.drawPrimitive(QStyle.PrimitiveElement.PE_PanelItemViewItem, background, painter, option.widget)
-        content = QStyleOptionViewItem(option)
-        content.rect = option.rect.adjusted(self.PADDING, 0, -self.PADDING, 0)
-        super().paint(painter, content, index)
-
-    def sizeHint(self, option, index):
-        size = super().sizeHint(option, index)
-        size.setWidth(size.width() + 2 * self.PADDING)
-        return size
-
-
-def take_list_key(view, event) -> bool:
-    """Gives the view the focus and an arrow key that was pressed elsewhere. Without a selection, the first row is
-    selected instead, since Qt would otherwise move on from an invisible current row.
-
-    False if the view has the focus already: then it didn't use the key itself (e.g. Up in the first row), and
-    sending it again would make it come back here, endlessly."""
-    if view.hasFocus():
-        return False
-    view.setFocus()
-    if view.selectionModel().hasSelection():
-        QApplication.sendEvent(view, QKeyEvent(event.type(), event.key(), event.modifiers(), event.text()))
-    else:
-        view.setCurrentIndex(view.model().index(0, 0))
-    return True
 
 
 class FilterProxy(QSortFilterProxyModel):

@@ -4,6 +4,7 @@ import time
 
 import pytest
 from PySide6.QtWidgets import QAbstractItemView, QApplication
+from test_wire import MESSAGE
 
 from fossildb_gui.connection import connect
 from fossildb_gui.key_browser import KeyBrowser
@@ -11,7 +12,6 @@ from fossildb_gui.main_window import MainWindow
 from fossildb_gui.schema_manager import SchemaManager
 from fossildb_gui.settings import ConnectionSpec
 from fossildb_gui.tasks import TaskRunner
-from test_wire import MESSAGE
 
 
 def wait_until(condition, timeout: float = 5) -> None:
@@ -36,6 +36,23 @@ def window(qt_app, fake_server):
     yield fake, window
     window.close()
     QApplication.processEvents()
+
+
+def shown_tab(record):
+    return record.value.tabs.currentWidget()
+
+
+def tab_enabled(record, tab) -> bool:
+    return record.value.tabs.isTabEnabled(record.value.tabs.indexOf(tab))
+
+
+def tab_tooltip(record, tab) -> str:
+    return record.value.tabs.tabToolTip(record.value.tabs.indexOf(tab))
+
+
+def version_texts(record) -> list[str]:
+    model = record.versions.model
+    return [model.index(row, 0).data() for row in range(len(model.versions))]
 
 
 def open_collection(window, name="collectionA") -> KeyBrowser:
@@ -67,28 +84,28 @@ def test_browse_keys_and_values(window):
 
     record = browser.record
     browser._table.selectRow(0)
-    wait_until(lambda: record._versions == [1, 0])
-    wait_until(lambda: "bytes" in record._value_label.text())
+    wait_until(lambda: record.versions.versions == [1, 0])
+    wait_until(lambda: "bytes" in record.value_label.text())
     # Version 1 is not protobuf, so the hex dump is shown
-    assert record._tabs.currentIndex() == record._hex_tab
-    assert not record._tabs.isTabEnabled(record._text_tab) and not record._tabs.isTabEnabled(record._json_tab)
-    assert not record._tabs.isTabEnabled(record._structure_tab) and not record._tabs.isTabEnabled(record._typed_tab)
-    assert record._tabs.tabToolTip(record._structure_tab).startswith("Not a protobuf message")
-    assert record._hex.toPlainText().startswith("00000000  ff fe")
+    assert shown_tab(record) is record.value.hex
+    assert not tab_enabled(record, record.value.text) and not tab_enabled(record, record.value.json_tab)
+    assert not tab_enabled(record, record.value.raw) and not tab_enabled(record, record.value.typed)
+    assert tab_tooltip(record, record.value.raw).startswith("Not a protobuf message")
+    assert record.value.hex.text.toPlainText().startswith("00000000  ff fe")
 
-    record._versions_view.setCurrentIndex(record._versions_model.index(1))
-    wait_until(lambda: record._structure_model.rowCount() == 7)
+    record.versions.view.setCurrentIndex(record.versions.model.index(1, 0))
+    wait_until(lambda: record.value.raw.model.rowCount() == 7)
     # Expand and collapse all; field 5 is a nested message
-    view = record._structure_view
+    view = record.value.raw.view
     model = view.model()
-    record._structure_expand_button.click()
+    record.value.raw.expand_button.click()
     assert view.isExpanded(model.index(4, 0))
-    record._structure_collapse_button.click()
+    record.value.raw.collapse_button.click()
     assert not view.isExpanded(model.index(4, 0))
     # Loaded values show their size in the version list
-    assert record._versions_model.stringList() == ["1  ·  2 B", f"0  ·  {len(MESSAGE)} B"]
-    assert record._tabs.currentIndex() == record._structure_tab
-    assert record._tabs.isTabEnabled(record._structure_tab) and record._tabs.isTabEnabled(record._typed_tab)
+    assert version_texts(record) == ["1  ·  2 B", f"0  ·  {len(MESSAGE)} B"]
+    assert shown_tab(record) is record.value.raw
+    assert tab_enabled(record, record.value.raw) and tab_enabled(record, record.value.typed)
 
 
 def test_prefix_filter_and_missing_collection(window):
@@ -109,21 +126,21 @@ def test_deletes_need_enabled_writes(window, monkeypatch):
     browser = open_collection(window)
     record = browser.record
     browser._table.selectRow(0)
-    wait_until(lambda: record._version is not None)
-    assert not record._delete_version_button.isEnabled()
+    wait_until(lambda: record.version is not None)
+    assert not record.delete_version_button.isEnabled()
 
     window._writes_action.setChecked(True)
-    assert record._delete_version_button.isEnabled()
+    assert record.delete_version_button.isEnabled()
     monkeypatch.setattr(window, "confirm_write", lambda *args, **kwargs: True)
-    record._delete_key()
+    record.delete_key()
     wait_until(lambda: "key00000" not in fake.data["collectionA"])
     wait_until(lambda: browser._model.keys[0] == "key00001")
 
 
 def test_long_paths_are_elided(qt_app):
-    from fossildb_gui.overview import _Value
+    from fossildb_gui.widgets import ElidedLabel
 
-    label = _Value(elide=True)
+    label = ElidedLabel()
     path = "/very/long/path/" * 20 + "data"
     label.setText(path)
     label.show()
@@ -172,31 +189,31 @@ def test_next_page_loads_before_the_end(window):
 
 
 def test_measure_total_key_size(window, monkeypatch):
-    from fossildb_gui import record_view
+    from fossildb_gui import versions_panel
 
     fake, window = window
     for version in range(40):
         fake.put("collectionA", "big", version, bytes(1000 + version))
     # Requests of about 10 values, so that measuring takes several of them
-    monkeypatch.setattr(record_view, "MEASURE_TARGET_BYTES", 10_000)
+    monkeypatch.setattr(versions_panel, "MEASURE_TARGET_BYTES", 10_000)
     browser = open_collection(window)
     record = browser.record
     record.show_key("big")
-    wait_until(lambda: len(record._versions) == 40 and record._measure_button.isEnabled())
+    wait_until(lambda: len(record.versions.versions) == 40 and record.versions.measure_button.isEnabled())
     requests_before = fake.multiple_versions_requests
-    record._measure_button.click()
-    wait_until(lambda: not record._measuring)
-    assert record._sizes == {version: 1000 + version for version in range(40)}
-    assert "Total: 40.8 kB" in record._measure_label.text()
-    assert "largest 1.0 kB (version 39)" in record._measure_label.text()
+    record.versions.measure_button.click()
+    wait_until(lambda: not record.versions.measuring)
+    assert record.versions.measured == {version: 1000 + version for version in range(40)}
+    assert "Total: 40.8 kB" in record.versions.measure_label.text()
+    assert "largest 1.0 kB (version 39)" in record.versions.measure_label.text()
     assert fake.multiple_versions_requests - requests_before > 2
-    assert record._versions_model.stringList()[0] == "39  ·  1.0 kB"
+    assert version_texts(record)[0] == "39  ·  1.0 kB"
 
     # Stopping keeps what was measured so far
-    record._measure_button.click()
-    assert record._measuring
-    record._measure_button.click()
-    assert not record._measuring and "Stopped" in record._measure_label.text()
+    record.versions.measure_button.click()
+    assert record.versions.measuring
+    record.versions.measure_button.click()
+    assert not record.versions.measuring and "Stopped" in record.versions.measure_label.text()
 
 
 def test_json_and_text_tabs(window):
@@ -206,20 +223,20 @@ def test_json_and_text_tabs(window):
     browser = open_collection(window)
     record = browser.record
     record.show_key("json")
-    wait_until(lambda: "bytes" in record._value_label.text())
+    wait_until(lambda: "bytes" in record.value_label.text())
     # Version 1 is text, but not JSON
-    assert record._tabs.currentIndex() == record._text_tab
-    assert record._tabs.isTabEnabled(record._json_tab) and "Not valid JSON" in record._json_note.text()
+    assert shown_tab(record) is record.value.text
+    assert tab_enabled(record, record.value.json_tab) and "Not valid JSON" in record.value.json_tab.note.text()
 
-    record._versions_view.setCurrentIndex(record._versions_model.index(1))
-    wait_until(lambda: record._json.toPlainText() != "")
-    assert record._tabs.currentIndex() == record._json_tab
-    assert record._json.toPlainText() == '{\n  "a": [\n    1,\n    2\n  ]\n}'
+    record.versions.view.setCurrentIndex(record.versions.model.index(1, 0))
+    wait_until(lambda: record.value.json_raw.toPlainText() != "")
+    assert shown_tab(record) is record.value.json_tab
+    assert record.value.json_raw.toPlainText() == '{\n  "a": [\n    1,\n    2\n  ]\n}'
     # The tree is expanded, since the document is small
-    tree = record._json_tree
+    tree = record.value.json_tab.view
     model = tree.model()
     assert model.index(0, 1).data() == "[1, 2]" and tree.isExpanded(model.index(0, 0))
-    assert record._json_stack.currentWidget() is tree
+    assert record.value.json_stack.currentWidget() is tree
     # The summary of an expanded array is dimmed, its items are not
     from PySide6.QtGui import QPalette
     from PySide6.QtWidgets import QStyleOptionViewItem
@@ -234,9 +251,12 @@ def test_json_and_text_tabs(window):
     assert text_color(model.index(0, 1, model.index(0, 0))) != dimmed
     tree.collapse(model.index(0, 0))
     assert text_color(model.index(0, 1)) != dimmed
-    record._json_raw_button.click()
-    assert record._json_stack.currentWidget() is record._json and not record._json_expand_button.isEnabled()
-    assert record._text.toPlainText() == '{"a": [1, 2]}'
+    record.value.json_raw_button.click()
+    assert (
+        record.value.json_stack.currentWidget() is record.value.json_raw
+        and not record.value.json_tab.expand_button.isEnabled()
+    )
+    assert record.value.text.text.toPlainText() == '{"a": [1, 2]}'
 
 
 def test_object_id_date_in_title(window):
@@ -268,19 +288,22 @@ def test_loading_more_row(window):
 
 
 def test_overview_columns(qt_app):
+    from fossildb_gui import collection_stats as stats
     from fossildb_gui import fmt, overview
     from fossildb_gui.api import pb
 
     assert [fmt.compact_count(n) for n in (870, 3400, 41_300_000)] == ["870", "3.4 k", "41.3 M"]
-    small = pb.CollectionInfoProto(name="small", columnFamily="small", liveSstFilesBytes=10, sstEntries=10, firstKey="a<b")
+    small = pb.CollectionInfoProto(
+        name="small", columnFamily="small", liveSstFilesBytes=10, sstEntries=10, firstKey="a<b"
+    )
     big = pb.CollectionInfoProto(
         name="big", columnFamily="big", liveSstFilesBytes=1000, sstEntries=100, sstDeletions=20,
         estimatedPendingCompactionBytes=3 << 30,
     )  # fmt: skip
-    assert overview._warnings(small) == []
-    assert overview._warnings(big) == ["⏳ 3.2 GB to compact", "⚠ 20 deletions"]
-    assert "a&lt;b" in overview._details(small)
-    summary = overview.summary_text(big, "production (db:7155)").splitlines()
+    assert stats.warnings(small) == []
+    assert stats.warnings(big) == ["⏳ 3.2 GB to compact", "⚠ 20 deletions"]
+    assert "a&lt;b" in stats.details_html(small)
+    summary = stats.summary_text(big, "production (db:7155)").splitlines()
     assert summary[0].startswith("big on production (db:7155), ")
     assert "  On disk:            1.0 kB" in summary
     assert summary[-1] == "  Status:             ⏳ 3.2 GB to compact   ⚠ 20 deletions"
@@ -368,11 +391,11 @@ def test_ctrl_tab_switches_tabs(window):
     focused.setFocus()
     QTest.keyClick(focused, Qt.Key.Key_Tab, ctrl)
     assert tabs.currentIndex() == 0
-    browser.record._json.setFocus()
+    browser.record.value.json_raw.setFocus()
     QTest.keyClick(window._overview._table, Qt.Key.Key_Tab, ctrl)
     assert tabs.currentIndex() == 1
-    browser.record._json.setFocus()
-    QTest.keyClick(browser.record._json, Qt.Key.Key_Backtab, ctrl | shift)
+    browser.record.value.json_raw.setFocus()
+    QTest.keyClick(browser.record.value.json_raw, Qt.Key.Key_Backtab, ctrl | shift)
     assert tabs.currentIndex() == 0
     QTest.keyClick(window._overview._table, Qt.Key.Key_Backtab, ctrl | shift)
     assert tabs.currentIndex() == 2
@@ -386,7 +409,9 @@ def test_window_geometry_is_remembered(qt_app, current_server):
 
     def new_window():
         connection = connect(address)
-        return MainWindow(ConnectionSpec(address), connection, connection.database_info(), runner, SchemaManager(runner))
+        return MainWindow(
+            ConnectionSpec(address), connection, connection.database_info(), runner, SchemaManager(runner)
+        )
 
     settings._set("windowGeometry", None)
     first = new_window()
@@ -590,7 +615,11 @@ def test_overview_totals(qt_app):
         )  # fmt: skip
 
     widget = overview.OverviewWidget(ConnectionSpec("x:1"))
-    widget.set_info(pb.DatabaseInfoProto(collections=[collection("a", 1 << 30, 5 << 30, 30_000_000), collection("b", 0, 0, 400_000)]))
+    widget.set_info(
+        pb.DatabaseInfoProto(
+            collections=[collection("a", 1 << 30, 5 << 30, 30_000_000), collection("b", 0, 0, 400_000)]
+        )
+    )
     assert widget._labels["Collections"].text() == "2 with ~30.4 M versions"
     assert widget._labels["Size"].text() == "1.1 GB on disk, 5.4 GB uncompressed (5.0×)"
 
@@ -598,10 +627,10 @@ def test_overview_totals(qt_app):
 def test_connect_dialog_checks_and_finds_servers(qt_app, monkeypatch):
     import socket
 
+    from conftest import FakeFossilDB, _serve
+
     from fossildb_gui import discovery, settings
     from fossildb_gui.connect_dialog import ConnectDialog
-
-    from conftest import FakeFossilDB, _serve
 
     servers = [_serve(FakeFossilDB()) for _ in range(2)]
     (_, known), (_, local) = servers
@@ -621,7 +650,13 @@ def test_connect_dialog_checks_and_finds_servers(qt_app, monkeypatch):
     items = lambda: [dialog._recent.item(row) for row in range(dialog._recent.count())]  # noqa: E731
     wait_until(lambda: dialog._recent.count() == 5 and all(item.toolTip() for item in items()[1:3]))
     texts = [item.text() for item in items()]
-    assert texts == ["db:7155 via jump", known.replace("127.0.0.1", "localhost"), unreachable, "On this computer", f"localhost:{local_port}"]
+    assert texts == [
+        "db:7155 via jump",
+        known.replace("127.0.0.1", "localhost"),
+        unreachable,
+        "On this computer",
+        f"localhost:{local_port}",
+    ]
     assert items()[0].toolTip() == ""  # tunnels are not checked
     assert items()[1].toolTip() == "FossilDB answers"
     assert items()[2].toolTip().startswith("Not reachable: Nothing is listening")
@@ -639,13 +674,13 @@ def test_size_units(window):
     browser = open_collection(window)
     record = browser.record
     record.show_key("big")
-    wait_until(lambda: record._versions_model.stringList() == ["0  ·  1.5 kB"])
-    assert "1.5 kB" in record._value_label.text()
+    wait_until(lambda: version_texts(record) == ["0  ·  1.5 kB"])
+    assert "1.5 kB" in record.value_label.text()
 
     main_window._set_size_units(False)
     assert settings.decimal_sizes() is False and window._binary_action.isChecked()
-    assert record._versions_model.stringList() == ["0  ·  1.5 KiB"]
-    wait_until(lambda: "1.5 KiB" in record._value_label.text())
+    assert version_texts(record) == ["0  ·  1.5 KiB"]
+    wait_until(lambda: "1.5 KiB" in record.value_label.text())
     if not fake.legacy:
         assert window._overview._labels["Size"].text().startswith("2.0 KiB on disk")
 
@@ -658,10 +693,10 @@ def test_arrow_keys_between_keys_and_versions(window):
     browser = open_collection(window)
     window.activateWindow()
     wait_until(lambda: QApplication.activeWindow() is window)
-    table, versions = browser._table, browser.record.versions_view
+    table, versions = browser._table, browser.record.versions.view
     table.setFocus()
     table.selectRow(0)
-    wait_until(lambda: browser.record._versions == [1, 0])
+    wait_until(lambda: browser.record.versions.versions == [1, 0])
     QTest.keyClick(table, Qt.Key.Key_Right)
     assert QApplication.focusWidget() is versions and versions.currentIndex().row() == 0
     QTest.keyClick(versions, Qt.Key.Key_Down)
@@ -765,17 +800,17 @@ def test_guess_button(window, tmp_path):
     record = browser.record
     record.show_key("skeleton")
     wait_until(lambda: ("skeleton", 0) in record._values)
-    record._guess_button.click()
-    wait_until(lambda: record._type_combo.currentText() == "test.Skeleton")
+    record.value.guess_button.click()
+    wait_until(lambda: record.value.type_combo.currentText() == "test.Skeleton")
     assert settings.message_type_for("collectionA") == "test.Skeleton"
     assert window.statusBar().currentMessage().startswith("Guessed test.Skeleton: knows all 2 fields")
-    wait_until(lambda: record._typed_model.rowCount() == 2)
+    wait_until(lambda: record.value.typed.model.rowCount() == 2)
 
     # The typed value as JSON, with the field names of the schema (int64 is a string in protobuf's JSON)
     import json
 
     QApplication.clipboard().clear()
-    record._copy_json()
+    record.value.copy_json()
     wait_until(lambda: QApplication.clipboard().text())
     assert json.loads(QApplication.clipboard().text()) == {"id": "1", "kind": "VOLUME"}
 
@@ -785,8 +820,8 @@ def test_filter_trees(window):
     fake.put("collectionA", "doc", 0, b'{"a": [1, {"b": "needle"}], "c": "x", "needle2": 5, "group": {"e": 1}}')
     record = open_collection(window).record
     record.show_key("doc")
-    wait_until(lambda: record._json_model.rowCount() == 4)
-    tree, field = record._json_tree, record._json_filter
+    wait_until(lambda: record.value.json_tab.model.rowCount() == 4)
+    tree, field = record.value.json_tab.view, record.value.json_tab.filter
     proxy = tree.model()
 
     def rows(parent=None):
@@ -808,50 +843,75 @@ def test_filter_trees(window):
 
 
 def test_many_versions(window, monkeypatch):
-    from fossildb_gui import key_browser, record_view
+    from fossildb_gui import versions_panel
 
     fake, window = window
-    monkeypatch.setattr(record_view, "VERSIONS_PAGE_SIZE", 10)
-    monkeypatch.setattr(record_view, "VERSIONS_PREFETCH_ROWS", 2)
-    monkeypatch.setattr(key_browser, "MAX_VERSION_COUNT", 20)
+    monkeypatch.setattr(versions_panel, "VERSIONS_PAGE_SIZE", 10)
+    monkeypatch.setattr(versions_panel, "VERSIONS_PREFETCH_ROWS", 2)
+    monkeypatch.setattr(versions_panel, "MAX_VERSION_COUNT", 20)
     for version in range(0, 50, 2):  # 25 versions: 0, 2, …, 48
         fake.put("collectionA", "many", version, bytes(version))
     browser = open_collection(window)
     record = browser.record
     record.show_key("many")
-    wait_until(lambda: len(record._versions) >= 10)
-    assert record._versions[:3] == [48, 46, 44] and record._versions_label.text().endswith("+ versions")
+    wait_until(lambda: len(record.versions.versions) >= 10)
+    assert record.versions.versions[:3] == [48, 46, 44] and record.versions.label.text().endswith("+ versions")
     # Scrolling to the end loads the older ones
-    view = record.versions_view
+    view = record.versions.view
 
     def scrolled_to_end():
         view.scrollToBottom()
-        return not record._more_versions and not record._loading_versions
+        return not record.versions.model.has_more and not record.versions.model.loading
 
     wait_until(scrolled_to_end)
-    assert record._versions == list(range(48, -1, -2)) and record._versions_label.text() == "25 versions"
+    assert record.versions.versions == list(range(48, -1, -2)) and record.versions.label.text() == "25 versions"
 
     # Going to a version that doesn't exist shows the next older one
-    record._go_to_version.setText("7")
-    record._go_to_version.returnPressed.emit()
-    wait_until(lambda: "Version 6" in record._value_label.text())
-    assert "there is no version 7" in record._value_label.text() and record._version == 6
+    record.versions.go_to.setText("7")
+    record.versions.go_to.returnPressed.emit()
+    wait_until(lambda: "Version 6" in record.value_label.text())
+    assert "there is no version 7" in record.value_label.text() and record.version == 6
 
     # The key list counts versions only up to MAX_VERSION_COUNT
     browser._model.reset("many")
     wait_until(lambda: browser._model.index(0, 1).data() == "20+")
 
 
-def test_measuring_lists_all_versions_first(window, monkeypatch):
-    from fossildb_gui import record_view
+def test_exact_version_count_before_all_are_listed(window, monkeypatch):
+    from fossildb_gui import versions_panel
 
     fake, window = window
-    monkeypatch.setattr(record_view, "VERSIONS_PAGE_SIZE", 5)
+    monkeypatch.setattr(versions_panel, "VERSIONS_PAGE_SIZE", 10)
+    monkeypatch.setattr(versions_panel, "VERSIONS_PREFETCH_ROWS", 0)
+    for version in range(15):
+        fake.put("collectionA", "few", version, b"x")
+    browser = open_collection(window)
+    browser._model.reset("few")
+    wait_until(lambda: browser._model.index(0, 1).data() == "15")
+    versions = browser.record.versions
+    # Chosen in the key list, its count is used, instead of counting again
+    requests = fake.list_versions_requests
+    browser._table.selectRow(0)
+    wait_until(lambda: len(versions.versions) >= 10)
+    assert versions.label.text() == "15 versions"
+    if versions.model.has_more:  # unless the view was tall enough to load the second page right away
+        assert "10 listed so far" in versions.label.toolTip()
+    assert fake.list_versions_requests - requests == 2 - versions.model.has_more  # only pages, no counting
+    # Opened by name, it is counted
+    browser.record.show_key("few")
+    wait_until(lambda: versions.count == 15 and versions.label.text() == "15 versions")
+
+
+def test_measuring_lists_all_versions_first(window, monkeypatch):
+    from fossildb_gui import versions_panel
+
+    fake, window = window
+    monkeypatch.setattr(versions_panel, "VERSIONS_PAGE_SIZE", 5)
     for version in range(12):
         fake.put("collectionA", "many", version, bytes(10))
     record = open_collection(window).record
     record.show_key("many")
-    wait_until(lambda: len(record._versions) == 5 and record._measure_button.isEnabled())
-    record._measure_button.click()
-    wait_until(lambda: not record._measuring)
-    assert len(record._versions) == 12 and "in 12 versions" in record._measure_label.text()
+    wait_until(lambda: len(record.versions.versions) == 5 and record.versions.measure_button.isEnabled())
+    record.versions.measure_button.click()
+    wait_until(lambda: not record.versions.measuring)
+    assert len(record.versions.versions) == 12 and "in 12 versions" in record.versions.measure_label.text()

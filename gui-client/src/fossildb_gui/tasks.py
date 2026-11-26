@@ -1,7 +1,8 @@
 """Running blocking work (gRPC calls, decoding) in background threads, and handing results to the UI thread."""
 
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Callable
+from typing import Any
 
 import shiboken6
 from PySide6.QtCore import QObject, Signal

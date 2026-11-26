@@ -53,6 +53,17 @@ def read_varint(buf: memoryview, pos: int, end: int) -> tuple[int, int]:
             raise WireError("varint longer than 10 bytes", pos)
 
 
+def varint_size(value: int) -> int:
+    """Encoded size of a varint. Negative int32 and int64 values are sign-extended to 64 bits, so they take 10."""
+    if value < 0:
+        return 10
+    size = 1
+    while value >= 0x80:
+        value >>= 7
+        size += 1
+    return size
+
+
 def parse_message(data: bytes | memoryview, max_fields: int | None = None) -> tuple[list[WireField], bool]:
     """Parses all fields of one message level. Returns the fields, and whether parsing stopped at max_fields.
 

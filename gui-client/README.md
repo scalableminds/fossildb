@@ -67,9 +67,23 @@ closed with the window.
 
 ```
 uv run pytest
+uv run ruff check src tests && uv run ruff format src tests
 ```
 
 Tests use an in-process fake FossilDB server; Qt runs offscreen.
+
+### Code structure
+
+- `__main__`, `connect_dialog`, `main_window`: starting, connecting, and one window per connection.
+- `overview`, `collection_stats`: the first tab, about the server and its collections.
+- `key_browser` (keys of a collection) → `record_view` (one key) → `versions_panel` (its versions) and `value_tabs`
+  (the selected value). `host` is what these panels need from the window.
+- `values` decodes a value in the background into what the tabs show, using `protobuf_tree`, `protobuf_sizes`,
+  `json_tree` and `wire` (schema-less protobuf parsing). `type_guess` finds the message type of a value.
+- `tree` (lazily loaded tree model and filter), `paged_model` (lists loaded page by page) and `widgets` are shared
+  building blocks of the views.
+- `connection`, `tunnel` and `discovery` talk to servers; `schemas` and `schema_manager` load `.proto` files;
+  `settings`, `tasks` (background work) and `fmt` (numbers, sizes, dates) are used throughout.
 
 The app icons in `src/fossildb_gui/resources` are rendered from the repository's `icon.svg`.
 After changing it, run `uv run python scripts/render_icon.py`.

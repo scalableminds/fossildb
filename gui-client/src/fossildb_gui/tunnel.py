@@ -7,7 +7,6 @@ import subprocess
 import threading
 import time
 
-
 # Tunnels run in their own session and would outlive the app, so stop them on exit
 _running: set["SshTunnel"] = set()
 atexit.register(lambda: [tunnel.stop() for tunnel in list(_running)])
@@ -21,6 +20,11 @@ def _free_local_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
+
+
+def local_ports_in_use() -> set[int]:
+    """The local ports of the tunnels that this app runs."""
+    return {tunnel.local_port for tunnel in list(_running) if tunnel.local_port is not None}
 
 
 class SshTunnel:
