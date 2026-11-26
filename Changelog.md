@@ -1,6 +1,7 @@
 # Changelog
 
 ## Added
+ - New API endpoint `GetDatabaseInfo`, returning information about the database and its collections (estimated version counts, sizes, compression, LSM levels, memtables, compaction state, first and last key). It reads only RocksDB metadata, so it stays fast on large databases.
  - New `--blockCacheSizeMB` option (default 512) for a block cache shared by all column families. It does not apply when `--rocksOptionsFile` is set. [#68](https://github.com/scalableminds/fossildb/pull/68)
  - New API endpoints `DeleteAllByPrefix` and `PutMultipleVersions`. [#47](https://github.com/scalableminds/fossildb/pull/47)
  - New API endpoints `GetMultipleKeysByListWithMultipleVersions` and `PutMultipleKeysWithMultipleVersions` for reading and writing multiple keys/versions in one request. [#48](https://github.com/scalableminds/fossildb/pull/48)

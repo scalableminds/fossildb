@@ -2,16 +2,20 @@ package com.scalableminds.fossildb
 
 import java.io.{PrintWriter, StringWriter}
 import com.google.protobuf.ByteString
-import com.scalableminds.fossildb.db.{StoreManager, VersionedKey, VersionedKeyValuePair}
+import com.scalableminds.fossildb.db.{CollectionInfo, StoreManager, VersionedKey, VersionedKeyValuePair}
 import com.scalableminds.fossildb.proto.fossildbapi._
 import scalapb.GeneratedMessage
 import com.typesafe.scalalogging.LazyLogging
+import fossildb.BuildInfo
+import org.rocksdb.RocksDB
 
 import scala.concurrent.Future
 
 class FossilDBGrpcImpl(storeManager: StoreManager)
   extends FossilDBGrpc.FossilDB
     with LazyLogging {
+
+  private val startTimeMillis = System.currentTimeMillis()
 
   override def health(req: HealthRequest): Future[HealthReply] = withExceptionHandler(req) {
     HealthReply(success = true)
@@ -143,6 +147,60 @@ class FossilDBGrpcImpl(storeManager: StoreManager)
     storeManager.exportDB(req.newDataDir, req.optionsFile)
     ExportDBReply(success = true)
   } { errorMsg => ExportDBReply(success = false, errorMsg) }
+
+  override def getDatabaseInfo(req: GetDatabaseInfoRequest): Future[GetDatabaseInfoReply] = withExceptionHandler(req) {
+    val info = storeManager.databaseInfo
+    val rocksInfo = info.rocksDBInfo
+    GetDatabaseInfoReply(success = true, None, Some(DatabaseInfoProto(
+      fossildbVersion = BuildInfo.version,
+      rocksdbVersion = RocksDB.rocksdbVersion().toString,
+      startTimeMillis = startTimeMillis,
+      dataDir = info.dataDir,
+      backupDir = info.backupDir,
+      rocksOptionsFile = info.rocksOptionsFile,
+      diskTotalBytes = info.diskTotalBytes,
+      diskUsableBytes = info.diskUsableBytes,
+      walSizeBytes = rocksInfo.walSizeBytes,
+      backupInProgress = info.backupInProgress,
+      compactionInProgress = info.compactionInProgress,
+      writesStopped = rocksInfo.writesStopped,
+      delayedWriteRateBytesPerSecond = rocksInfo.delayedWriteRateBytesPerSecond,
+      backgroundErrors = rocksInfo.backgroundErrors,
+      runningCompactions = rocksInfo.runningCompactions.toInt,
+      runningFlushes = rocksInfo.runningFlushes.toInt,
+      collections = rocksInfo.collections.map(collectionInfoToProto)
+    )))
+  } { errorMsg => GetDatabaseInfoReply(success = false, errorMsg) }
+
+  private def collectionInfoToProto(info: CollectionInfo): CollectionInfoProto = CollectionInfoProto(
+    name = info.name,
+    columnFamily = info.columnFamily,
+    estimatedVersionCount = info.estimatedVersionCount,
+    sstFileCount = info.sstFileCount,
+    totalSstFilesBytes = info.totalSstFilesBytes,
+    liveSstFilesBytes = info.liveSstFilesBytes,
+    estimatedLiveDataBytes = info.estimatedLiveDataBytes,
+    sstEntries = info.sstEntries,
+    sstDeletions = info.sstDeletions,
+    rawKeyBytes = info.rawKeyBytes,
+    rawValueBytes = info.rawValueBytes,
+    indexBytes = info.indexBytes,
+    filterBytes = info.filterBytes,
+    memtableBytes = info.memtableBytes,
+    memtableEntries = info.memtableEntries,
+    memtableDeletions = info.memtableDeletions,
+    tableReadersMemoryBytes = info.tableReadersMemoryBytes,
+    estimatedPendingCompactionBytes = info.estimatedPendingCompactionBytes,
+    compactionPending = info.compactionPending,
+    oldestSstFileCreationTimeSeconds = info.oldestSstFileCreationTimeSeconds,
+    newestSstFileCreationTimeSeconds = info.newestSstFileCreationTimeSeconds,
+    firstKey = info.firstKey,
+    lastKey = info.lastKey,
+    blockCacheCapacityBytes = info.blockCacheCapacityBytes,
+    blockCacheUsageBytes = info.blockCacheUsageBytes,
+    blockCachePinnedUsageBytes = info.blockCachePinnedUsageBytes,
+    levels = info.levels.map(level => LevelInfoProto(level.level, level.fileCount, level.sizeBytes, level.compressions))
+  )
 
   private def withExceptionHandler[T, R <: GeneratedMessage](request: R)(tryBlock: => T)(onErrorBlock: Option[String] => T): Future[T] = {
     try {

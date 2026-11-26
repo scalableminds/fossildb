@@ -1,7 +1,11 @@
 package com.scalableminds.fossildb.db
 
-import java.nio.file.{Path, Paths}
+import java.nio.file.{Files, Path, Paths}
 import java.util.concurrent.atomic.AtomicBoolean
+
+case class DatabaseInfo(dataDir: String, backupDir: String, rocksOptionsFile: Option[String], diskTotalBytes: Long,
+                        diskUsableBytes: Long, backupInProgress: Boolean, compactionInProgress: Boolean,
+                        rocksDBInfo: RocksDBInfo)
 
 class StoreManager(dataDir: Path, backupDir: Path, columnFamilies: List[String], rocksdbOptionsFile: Option[String],
                    blockCacheSizeMB: Long) {
@@ -85,6 +89,21 @@ class StoreManager(dataDir: Path, backupDir: Path, columnFamilies: List[String],
   def exportDB(newDataDir: String, newOptionsFilePathOpt: Option[String]): Unit = {
     failDuringRestore()
     rocksDBManager.get.exportToNewDB(Paths.get(newDataDir), newOptionsFilePathOpt)
+  }
+
+  def databaseInfo: DatabaseInfo = {
+    failDuringRestore()
+    val fileStore = Files.getFileStore(dataDir)
+    DatabaseInfo(
+      dataDir = dataDir.toAbsolutePath.toString,
+      backupDir = backupDir.toAbsolutePath.toString,
+      rocksOptionsFile = rocksdbOptionsFile,
+      diskTotalBytes = fileStore.getTotalSpace,
+      diskUsableBytes = fileStore.getUsableSpace,
+      backupInProgress = backupInProgress.get,
+      compactionInProgress = compactionInProgress.get,
+      rocksDBInfo = rocksDBManager.get.databaseInfo()
+    )
   }
 
   def close: Unit = {
