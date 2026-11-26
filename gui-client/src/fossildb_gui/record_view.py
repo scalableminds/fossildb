@@ -96,9 +96,13 @@ class RecordView(QWidget):
         self.versions.show_key(key, select, version_count)
         self.update_write_actions()
 
+    def clear_cache(self) -> None:
+        """Forgets the values kept in memory, so that they are loaded from the server again when shown."""
+        self._values.clear()
+
     def reload(self) -> None:
         """Loads the versions and the shown value again from the server."""
-        self._values.clear()
+        self.clear_cache()
         self.show_key(self._key, select=self._version)
 
     def redisplay(self) -> None:

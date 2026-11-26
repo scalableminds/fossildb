@@ -126,7 +126,7 @@ class MainWindow(QMainWindow):
         file_menu.addAction("Quit", QKeySequence.StandardKey.Quit, self._quit)
 
         database_menu = self.menuBar().addMenu("&Database")
-        database_menu.addAction("Refresh", QKeySequence.StandardKey.Refresh, self._refresh)
+        database_menu.addAction("Refresh and Clear Client Cache", QKeySequence.StandardKey.Refresh, self._refresh)
         database_menu.addAction("Open Collection…", QKeySequence("Ctrl+O"), self._ask_collection)
         database_menu.addAction("Filter Keys", QKeySequence.StandardKey.Find, self._focus_filter)
         database_menu.addSeparator()
@@ -206,6 +206,9 @@ class MainWindow(QMainWindow):
     # Refreshing
 
     def _refresh(self) -> None:
+        # Values shown before may have changed on the server, e.g. by a migration, so no tab may show them from memory
+        for index in range(1, self._tabs.count()):
+            self._tabs.widget(index).record.clear_cache()
         browser = self._current_browser()
         if browser is not None:
             browser.refresh()
