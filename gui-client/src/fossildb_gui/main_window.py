@@ -356,8 +356,11 @@ class MainWindow(QMainWindow):
 
     def _check_tunnel(self) -> None:
         tunnel = self._connection.tunnel
-        if not tunnel.is_alive():
+        if not self._connection.check_tunnel():
             self._tunnel_timer.stop()
+            # The connection refuses all calls from now on; also make clear that nothing can be written anymore
+            self._writes_action.setChecked(False)
+            self._writes_action.setEnabled(False)
             message = tunnel.exit_message()
             self.show_status(f"The SSH tunnel was closed: {message}")
             QMessageBox.warning(

@@ -9,10 +9,12 @@ With [uv](https://docs.astral.sh/uv/):
 
 ```
 cd gui-client
-uv run fossildb-gui                                      # choose a server in the connect window
-uv run fossildb-gui localhost:7155                       # connect right away
-uv run fossildb-gui localhost:7155 --ssh user@server     # through an SSH tunnel
+uv run client                                   # choose a server in the connect window
+uv run client localhost:7155                    # connect right away
+uv run client localhost:7155 --ssh user@server  # through an SSH tunnel
 ```
+
+`uv run gui` and `uv run fossildb-gui` do the same.
 
 The API code is generated from [`../src/main/protobuf/fossildbapi.proto`](../src/main/protobuf/fossildbapi.proto) on
 the first start, and again whenever that file changes.

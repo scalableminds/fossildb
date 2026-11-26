@@ -34,6 +34,9 @@ MAX_VERSION_COUNT_REQUESTS = 3
 PREFETCH_ROWS = 50
 # Counting the keys that a prefix delete affects stops here
 MAX_COUNTED_KEYS = 10_000
+# Separates key and version in the entries that FossilDB stores, so keys cannot contain it
+# (VersionedKey.versionSeparator on the server)
+VERSION_SEPARATOR = "@"
 
 
 class KeyListModel(PagedModel):
@@ -293,6 +296,16 @@ class KeyBrowser(QWidget):
         if not prefix:
             QMessageBox.information(
                 self, "Delete keys with prefix", "Enter the prefix of the keys to delete in the filter field first."
+            )
+            return
+        if VERSION_SEPARATOR in prefix:
+            # FossilDB stores entries as key@…@version and matches the prefix against those, so a prefix with @ would
+            # delete versions of keys that don't start with it, e.g. "abc@" all versions of the key "abc"
+            QMessageBox.warning(
+                self,
+                "Delete keys with prefix",
+                f"The prefix contains “{VERSION_SEPARATOR}”, which keys cannot contain. Deleting by such a prefix "
+                "would delete other data than the listed keys, so it is not possible.",
             )
             return
         self._host.show_status(f"Counting keys starting with “{prefix}”…")

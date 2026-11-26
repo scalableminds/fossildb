@@ -34,6 +34,10 @@ class Connection:
             ],
         )
         self._stub = pb_grpc.FossilDBStub(self._channel)
+        # Set once the SSH tunnel died. Its local port is free then, and gRPC would reconnect to whatever listens there
+        # next, possibly another server, so the channel is closed for good.
+        self._tunnel_lost = False
+        self._close_lock = threading.Lock()
 
     def check_health(self, timeout: float = CONNECT_TIMEOUT_SECONDS) -> None:
         state = self._wait_for_channel(timeout)
@@ -71,9 +75,27 @@ class Connection:
         if self.tunnel is not None:
             self.tunnel.stop()
 
+    def check_tunnel(self) -> bool:
+        """False if the connection goes through an SSH tunnel that died. The channel is closed then, so that no
+        further call can reach another server that later listens on the tunnel's local port."""
+        if self.tunnel is None or self.tunnel.is_alive():
+            return True
+        with self._close_lock:
+            if not self._tunnel_lost:
+                self._tunnel_lost = True
+                self._channel.close()
+        return False
+
     def _call(self, method: str, request, timeout: float | None = DEFAULT_TIMEOUT_SECONDS):
+        if not self.check_tunnel():
+            raise FossilDBError(
+                f"The SSH tunnel to {self.tunnel.ssh_host} was closed. Reconnect via File → New Connection."
+            )
         try:
             reply = getattr(self._stub, method)(request, timeout=timeout)
+        except ValueError:
+            # gRPC refuses calls on a closed channel, e.g. after the tunnel died or the window was closed
+            raise FossilDBError(f"{method} failed: the connection is closed") from None
         except grpc.RpcError as e:
             if e.code() == grpc.StatusCode.UNIMPLEMENTED:
                 raise NotSupportedError(f"This FossilDB server does not support {method}, it is too old") from None
