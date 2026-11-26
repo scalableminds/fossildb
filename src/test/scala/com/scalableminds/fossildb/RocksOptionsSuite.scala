@@ -75,28 +75,7 @@ class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHel
     assert(logContent.contains("capacity : 64000000"))
   }
 
-  "CompactAllData" should "compact the data of all column families and drop deleted entries" in {
-    val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, None, ConfigDefaults.blockCacheSizeMB)
-    try {
-      Seq(collectionA, collectionB).foreach { collection =>
-        val store = storeManager.getStore(collection)
-        (0 until 100).foreach(i => store.put(s"key$i", 0, Array[Byte](1)))
-        store.withRawRocksIterator(it => (0 until 50).foreach(i => store.deleteMultipleVersions(it, s"key$i")))
-      }
-      storeManager.compactAllData()
-      val store = storeManager.getStore(collectionB)
-      assert(store.withRawRocksIterator(it => store.listKeys(it, None, None, None)).size == 50)
-    } finally {
-      storeManager.close
-    }
-    // All data of both column families is flushed and compacted into SST files, without the deleted entries
-    val properties = sstFileProperties()
-    assert(properties.map(p => new String(p.getColumnFamilyName)).sorted == Seq(collectionA, collectionB))
-    assert(properties.map(_.getNumEntries).sum == 100)
-    assert(properties.map(_.getNumDeletions).sum == 0)
-  }
-
-  it should "rewrite bottommost files with the current options" in {
+  "CompactAllData" should "rewrite bottommost files with the current options" in {
     // Write uncompressed files to the bottommost level
     RocksDB.loadLibrary()
     dataDir.toFile.mkdirs()
@@ -125,12 +104,6 @@ class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHel
 
   it should "compress with lz4, and zstd for the bottommost level, without a config file" in {
     val storeManager = new StoreManager(dataDir, backupDir, columnFamilies, None, ConfigDefaults.blockCacheSizeMB)
-    val store = storeManager.getStore(collectionA)
-    val value = ("some compressible value " * 100).getBytes
-    (0 until 1000).foreach(i => store.put(s"key$i", 0, value))
-    // CompactAllData writes everything to the bottommost level, which uses zstd
-    storeManager.compactAllData()
-    assert(store.withRawRocksIterator(it => store.get(it, "key500", None)).map(_.value.toSeq).contains(value.toSeq))
     storeManager.close
 
     val options = new DBOptions()
@@ -139,7 +112,32 @@ class RocksOptionsSuite extends AnyFlatSpec with BeforeAndAfterEach with TestHel
     val cfOptions = cfListRef.find(cf => new String(cf.getName) == collectionA).get.getOptions
     assert(cfOptions.compressionType() == CompressionType.LZ4_COMPRESSION)
     assert(cfOptions.bottommostCompressionType() == CompressionType.ZSTD_COMPRESSION)
-    assert(sstFileProperties().forall(_.getCompressionName == "ZSTD"))
+  }
+
+  private def maxBackgroundJobsInOptionsFile(): Int =
+    Using.resources(new DBOptions(), new ConfigOptions()) { (options, configOptions) =>
+      val cfListRef: mutable.Buffer[ColumnFamilyDescriptor] = mutable.Buffer()
+      org.rocksdb.OptionsUtil.loadLatestOptions(configOptions, dataDir.toString, options, cfListRef.asJava)
+      options.maxBackgroundJobs()
+    }
+
+  "maxBackgroundJobs" should "default to 8 without a config file" in {
+    new StoreManager(dataDir, backupDir, columnFamilies, None, ConfigDefaults.blockCacheSizeMB).close
+    assert(maxBackgroundJobsInOptionsFile() == 8)
+  }
+
+  it should "use the value from the config file if not set" in {
+    val file = new File(testTempDir, "testConfig.ini")
+    writeToFile(file, "[Version]\n  rocksdb_version=5.11.3\n  options_file_version=1.1\n\n[DBOptions]\n  max_background_jobs=3\n\n[CFOptions \"default\"]\n\n")
+    new StoreManager(dataDir, backupDir, columnFamilies, Some(file.getPath), ConfigDefaults.blockCacheSizeMB).close
+    assert(maxBackgroundJobsInOptionsFile() == 3)
+  }
+
+  it should "override the value from the config file if set" in {
+    val file = new File(testTempDir, "testConfig.ini")
+    writeToFile(file, "[Version]\n  rocksdb_version=5.11.3\n  options_file_version=1.1\n\n[DBOptions]\n  max_background_jobs=3\n\n[CFOptions \"default\"]\n\n")
+    new StoreManager(dataDir, backupDir, columnFamilies, Some(file.getPath), ConfigDefaults.blockCacheSizeMB, maxBackgroundJobs = Some(5)).close
+    assert(maxBackgroundJobsInOptionsFile() == 5)
   }
 
   it should "convert snappy files to zstd" in {

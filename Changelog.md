@@ -8,10 +8,13 @@
  - New API endpoint `GetMultipleKeysByList`. [#52](https://github.com/scalableminds/fossildb/pull/52)
 
 ## Changed
+- `CompactAllData` now rewrites files with an outdated compression one at a time (`--compactionThreads`, default 2), instead of compacting whole collections at once. Writes no longer stall while it runs, it is faster, and it continues where it stopped if called again. It no longer compacts level-0 files or drops deleted entries across files. `ExportDB` still compacts the new database completely.
+- RocksDB now runs up to 8 background jobs (`--maxBackgroundJobs`) instead of 2, so once compactions fall behind, several run in parallel instead of one long compaction blocking all others and stalling writes. With `--rocksOptionsFile`, the value from that file applies unless `--maxBackgroundJobs` is set.
 - New SST files use lz4 compression, and zstd for the bottommost level, instead of snappy for all levels. Existing snappy files stay readable, but are only converted when a compaction rewrites them, which may never happen for old data. Run `CompactAllData` to convert all files at once. See [Compression](README.md#compression). [#66](https://github.com/scalableminds/fossildb/pull/66)
 
 ## Breaking Changes
 
+ - `CompactAllData` no longer frees the space of deleted and overwritten entries by default, it only rewrites files with an outdated compression. Set the new `full` field of `CompactAllDataRequest` to compact all data at once and free that space, as before. This may stall writes while it runs.
  - The `GetMultipleKeys` call now takes a `startAfterKey` instead of a `key` for pagination. The returned list will only start *after* this key. [#38](https://github.com/scalableminds/fossildb/pull/38)
  - Now needs Java 11+
 
